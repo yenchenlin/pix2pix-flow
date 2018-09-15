@@ -157,7 +157,6 @@ def main(hps):
 
     # Initialize visualization functions
     visualise = init_visualizations(hps, model, logdir)
-
     if not hps.inference:
         # Perform training
         train(sess, model, hps, logdir, visualise)
@@ -373,7 +372,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs_warmup", type=int,
                         default=10, help="Warmup epochs")
     parser.add_argument("--epochs_full_valid", type=int,
-                        default=50, help="Epochs between valid")
+                        default=5, help="Epochs between valid")
     parser.add_argument("--gradient_checkpointing", type=int,
                         default=1, help="Use memory saving gradients")
 
