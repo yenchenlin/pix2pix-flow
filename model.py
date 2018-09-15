@@ -39,9 +39,11 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
         m.train = lambda _lr: sess.run([train_op, stats_train], {lr: _lr})[1]
     else:
         def _train(_lr):
-            _x, _y = train_iterator()
+            _x, _y, _code = train_iterator()
             return sess.run([train_op, stats_train], {feeds['x']: _x,
-                                                      feeds['y']: _y, lr: _lr})[1]
+                                                      feeds['y']: _y,
+                                                      feeds['code']: _code,
+                                                      lr: _lr})[1]
         m.train = _train
 
     m.polyak_swap = lambda: sess.run(polyak_swap_op)
@@ -52,9 +54,10 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
         m.test = lambda: sess.run(stats_test)
     else:
         def _test():
-            _x, _y = test_iterator()
+            _x, _y, _code = test_iterator()
             return sess.run(stats_test, {feeds['x']: _x,
-                                         feeds['y']: _y})
+                                         feeds['y']: _y,
+                                         feeds['code']: _code})
         m.test = _test
 
     # === Saving and restoring
@@ -64,6 +67,7 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
         sess, path, write_meta_graph=False)
     m.save = lambda path: saver.save(sess, path, write_meta_graph=False)
     m.restore = lambda path: saver.restore(sess, path)
+    print("After saver")
 
     # === Initialize the parameters
     if hps.restore_path != '':
@@ -73,7 +77,8 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
             results_init = f_loss(None, True, reuse=True)
         sess.run(tf.global_variables_initializer())
         sess.run(results_init, {feeds['x']: data_init['x'],
-                                feeds['y']: data_init['y']})
+                                feeds['y']: data_init['y'],
+                                feeds['code']: data_init['code']})
     sess.run(hvd.broadcast_global_variables(0))
 
     return m
@@ -145,6 +150,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
         X = tf.placeholder(
             tf.uint8, [None, hps.image_size, hps.image_size, 3], name='image')
         Y = tf.placeholder(tf.int32, [None], name='label')
+        CODE = tf.placeholder(tf.float32, [None, hps.image_size * hps.image_size * 3], name='code')
         lr = tf.placeholder(tf.float32, None, name='learning_rate')
 
     encoder, decoder = codec(hps)
@@ -160,7 +166,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
     def postprocess(x):
         return tf.cast(tf.clip_by_value(tf.floor((x + .5)*hps.n_bins)*(256./hps.n_bins), 0, 255), 'uint8')
 
-    def _f_loss(x, y, is_training, reuse=False):
+    def _f_loss(x, y, code, is_training, reuse=False):
 
         with tf.variable_scope('model', reuse=reuse):
             y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
@@ -173,7 +179,12 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
 
             # Encode
             z = Z.squeeze2d(z, 2)  # > 16x16x12
-            z, objective, _ = encoder(z, objective)
+            z, objective, eps = encoder(z, objective)
+
+            # L2 loss of eps and latent code from another model
+            eps.append(z)
+            eps = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
+            code_loss = tf.nn.l2_loss(eps - code)
 
             # Prior
             hps.top_shape = Z.int_shape(z)[1:]
@@ -201,26 +212,28 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
             else:
                 bits_y = tf.zeros_like(bits_x)
                 classification_error = tf.ones_like(bits_x)
-
-        return bits_x, bits_y, classification_error
+        return bits_x, bits_y, classification_error, code_loss
 
     def f_loss(iterator, is_training, reuse=False):
         if hps.direct_iterator and iterator is not None:
             x, y = iterator.get_next()
         else:
-            x, y = X, Y
-
-        bits_x, bits_y, pred_loss = _f_loss(x, y, is_training, reuse)
+            x, y, code = X, Y, CODE
+        bits_x, bits_y, pred_loss, code_loss = _f_loss(x, y, code, is_training, reuse)
         local_loss = bits_x + hps.weight_y * bits_y
+        # Add code difference loss
+        local_loss += code_loss
         stats = [local_loss, bits_x, bits_y, pred_loss]
         global_stats = Z.allreduce_mean(
             tf.stack([tf.reduce_mean(i) for i in stats]))
 
         return tf.reduce_mean(local_loss), global_stats
 
-    feeds = {'x': X, 'y': Y}
+    print("Before abstract model")
+    feeds = {'x': X, 'y': Y, 'code': CODE}
     m = abstract_model_xy(sess, hps, feeds, train_iterator,
                           test_iterator, data_init, lr, f_loss)
+    print("After abstract model")
 
     # === Sampling function
     def f_sample(y, eps_std):
