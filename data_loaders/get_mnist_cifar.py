@@ -34,11 +34,15 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
     if problem == 'mnist':
         from keras.datasets import mnist
         (x_train, y_train), (x_test, y_test) = mnist.load_data()
+        z_train = np.load('/afs/csail.mit.edu/u/y/yenchenlin/Workspace/glow/x2z/glow_train.npy')
+        z_test = np.load('/afs/csail.mit.edu/u/y/yenchenlin/Workspace/glow/x2z/glow_test.npy')
         y_train = np.reshape(y_train, [-1])
+        y_train = np.concatenate([y_train[:, np.newaxis], z_train], axis=1)
         y_test = np.reshape(y_test, [-1])
+        y_test = np.concatenate([y_test[:, np.newaxis], z_test], axis=1)
         # Pad with zeros to make 32x32
         x_train = np.lib.pad(x_train, ((0, 0), (2, 2), (2, 2)), 'minimum')
-        # Pad with zeros to make 32x23
+        # Pad with zeros to make 32x32
         x_test = np.lib.pad(x_test, ((0, 0), (2, 2), (2, 2)), 'minimum')
         x_train = np.tile(np.reshape(x_train, (-1, 32, 32, 1)), (1, 1, 1, 3))
         x_test = np.tile(np.reshape(x_test, (-1, 32, 32, 1)), (1, 1, 1, 3))
@@ -95,11 +99,13 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
 
     def make_iterator(flow, resolution):
         def iterator():
-            x_full, y = flow.next()
+            x_full, yz = flow.next()
             x_full = x_full.astype(np.float32)
             x = downsample(x_full, resolution)
             x = x_to_uint8(x)
-            return x, y
+            y = np.squeeze(yz[:, :1])
+            z = yz[:, 1:]
+            return x, y, z
 
         return iterator
 
@@ -117,10 +123,11 @@ def make_batch(iterator, iterator_batch_size, required_batch_size):
     ib, rb = iterator_batch_size, required_batch_size
     #assert rb % ib == 0
     k = int(np.ceil(rb / ib))
-    xs, ys = [], []
+    xs, ys, codes = [], [], []
     for i in range(k):
-        x, y = iterator()
+        x, y, code = iterator()
         xs.append(x)
         ys.append(y)
-    x, y = np.concatenate(xs)[:rb], np.concatenate(ys)[:rb]
-    return {'x': x, 'y': y}
+        codes.append(code)
+    x, y, code = np.concatenate(xs)[:rb], np.concatenate(ys)[:rb], np.concatenate(codes)[:rb]
+    return {'x': x, 'y': y, 'code': code}
