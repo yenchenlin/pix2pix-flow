@@ -30,7 +30,7 @@ def shard(data, shards, rank):
     return x[ind:ind+size], y[ind:ind+size]
 
 
-def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_batch_test, n_batch_init, resolution):
+def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_batch_test, n_batch_init, resolution, flip_color=False):
     if problem == 'mnist':
         from keras.datasets import mnist
         (x_train, y_train), (x_test, y_test) = mnist.load_data()
@@ -46,6 +46,9 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
         x_test = np.lib.pad(x_test, ((0, 0), (2, 2), (2, 2)), 'minimum')
         x_train = np.tile(np.reshape(x_train, (-1, 32, 32, 1)), (1, 1, 1, 3))
         x_test = np.tile(np.reshape(x_test, (-1, 32, 32, 1)), (1, 1, 1, 3))
+        if flip_color:
+            x_train = 255.0 - x_train
+            x_test = 255.0 - x_test
     elif problem == 'cifar10':
         from keras.datasets import cifar10
         (x_train, y_train), (x_test, y_test) = cifar10.load_data()

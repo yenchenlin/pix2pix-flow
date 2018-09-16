@@ -113,7 +113,7 @@ def get_data(hps, sess):
         import data_loaders.get_mnist_cifar as v
         train_iterator, test_iterator, data_init = \
             v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
-                       hps.local_batch_test, hps.local_batch_init, hps.image_size)
+                       hps.local_batch_test, hps.local_batch_init, hps.image_size, flip_color=hps.flip_color)
 
     else:
         raise Exception()
@@ -396,7 +396,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_sample", type=int, default=1,
                         help="minibatch size for sample")
     parser.add_argument("--epochs_full_sample", type=int,
-                        default=50, help="Epochs between full scale sample")
+                        default=10, help="Epochs between full scale sample")
 
     # Ablation
     parser.add_argument("--learntop", action="store_true",
@@ -408,6 +408,8 @@ if __name__ == "__main__":
                         help="Type of flow. 0=reverse (realnvp), 1=shuffle, 2=invconv (ours)")
     parser.add_argument("--flow_coupling", type=int, default=0,
                         help="Coupling type: 0=additive, 1=affine")
+    parser.add_argument("--flip_color", action="store_true",
+                        help="Whether flip the color of mnist")
 
     hps = parser.parse_args()  # So error if typo
     main(hps)
