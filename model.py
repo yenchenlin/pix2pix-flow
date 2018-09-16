@@ -190,8 +190,8 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
                 raise NotImplementedError()
             elif hps.code_loss == 'last':
                 z_flatten = tf.contrib.layers.flatten(z)
-                z_dim = z.get_shape()[-1]
-                code_loss = tf.reduce_mean(tf.squared_difference(code[:, z_dim:], z_flatten))
+                z_dim = z_flatten.get_shape().as_list()[-1]
+                code_loss = tf.reduce_mean(tf.squared_difference(code[:, -z_dim:], z_flatten))
             else:
                 raise NotImplementedError()
 
