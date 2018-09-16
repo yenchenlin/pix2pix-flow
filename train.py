@@ -408,8 +408,14 @@ if __name__ == "__main__":
                         help="Type of flow. 0=reverse (realnvp), 1=shuffle, 2=invconv (ours)")
     parser.add_argument("--flow_coupling", type=int, default=0,
                         help="Coupling type: 0=additive, 1=affine")
+
+    # Pix2pix
     parser.add_argument("--flip_color", action="store_true",
                         help="Whether flip the color of mnist")
+    parser.add_argument("--code_loss", type=str, default='all',
+                        help="How many latent codes are used to get code loss")
+    parser.add_argument("--code_loss_scale", type=float, default=1.0,
+                        help="Scalar that is used to time code_loss")
 
     hps = parser.parse_args()  # So error if typo
     main(hps)

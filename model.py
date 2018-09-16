@@ -182,9 +182,18 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
             z, objective, eps = encoder(z, objective)
 
             # L2 loss of eps and latent code from another model
-            eps.append(z)
-            eps = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
-            code_loss = tf.reduce_mean(tf.squared_difference(code, eps))
+            if hps.code_loss == 'all':
+                eps.append(z)
+                eps = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
+                code_loss = tf.reduce_mean(tf.squared_difference(code, eps))
+            elif hps.code_loss == 'last_2':
+                raise NotImplementedError()
+            elif hps.code_loss == 'last':
+                z_flatten = tf.contrib.layers.flatten(z)
+                z_dim = z.get_shape()[-1]
+                code_loss = tf.reduce_mean(tf.squared_difference(code[:, z_dim:], z_flatten))
+            else:
+                raise NotImplementedError()
 
             # Prior
             hps.top_shape = Z.int_shape(z)[1:]
@@ -222,7 +231,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
         bits_x, bits_y, pred_loss, code_loss = _f_loss(x, y, code, is_training, reuse)
         local_loss = bits_x + hps.weight_y * bits_y
         # Add code difference loss
-        local_loss += code_loss
+        local_loss += hps.code_loss_scale * code_loss
         stats = [local_loss, bits_x, bits_y, pred_loss]
         global_stats = Z.allreduce_mean(
             tf.stack([tf.reduce_mean(i) for i in stats]))
