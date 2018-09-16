@@ -184,7 +184,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
             # L2 loss of eps and latent code from another model
             eps.append(z)
             eps = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
-            code_loss = tf.nn.l2_loss(eps - code)
+            code_loss = tf.reduce_mean(tf.squared_difference(code, eps))
 
             # Prior
             hps.top_shape = Z.int_shape(z)[1:]
