@@ -187,8 +187,8 @@ def infer(sess, model, hps, iterator):
 
     x = np.concatenate(xs, axis=0)
     z = np.concatenate(zs, axis=0)
-    np.save('logs/x.npy', x)
-    np.save('logs/z.npy', z)
+    np.save('{}/x.npy'.format(hps.logdir), x)
+    np.save('{}/z.npy'.format(hps.logdir), z)
     return zs
 
 
