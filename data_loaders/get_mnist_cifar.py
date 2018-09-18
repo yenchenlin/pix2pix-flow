@@ -30,13 +30,13 @@ def shard(data, shards, rank):
     return x[ind:ind+size], y[ind:ind+size]
 
 
-def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_batch_test, n_batch_init, resolution, flip_color=False, inference=False):
+def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_batch_test, n_batch_init, resolution, flip_color=False, get_code=False):
     if problem == 'mnist':
         from keras.datasets import mnist
         (x_train, y_train), (x_test, y_test) = mnist.load_data()
         y_train = np.reshape(y_train, [-1])
         y_test = np.reshape(y_test, [-1])
-        if not inference:
+        if get_code:
             z_train = np.load('/afs/csail.mit.edu/u/y/yenchenlin/Workspace/glow/x2z/glow_train.npy')
             y_train = np.concatenate([y_train[:, np.newaxis], z_train], axis=1)
             z_test = np.load('/afs/csail.mit.edu/u/y/yenchenlin/Workspace/glow/x2z/glow_test.npy')
@@ -101,13 +101,13 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
     train_flow = datagen_train.flow(x_train, y_train, n_batch_train)
     test_flow = datagen_test.flow(x_test, y_test, n_batch_test, shuffle=False)
 
-    def make_iterator(flow, resolution, inference=False):
+    def make_iterator(flow, resolution, get_code=False):
         def iterator():
             x_full, yz = flow.next()
             x_full = x_full.astype(np.float32)
             x = downsample(x_full, resolution)
             x = x_to_uint8(x)
-            if not inference:
+            if get_code:
                 y = np.squeeze(yz[:, :1])
                 z = yz[:, 1:]
                 return x, y, z
@@ -118,22 +118,22 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
         return iterator
 
     #init_iterator = make_iterator(train_flow, resolution)
-    train_iterator = make_iterator(train_flow, resolution, inference)
-    test_iterator = make_iterator(test_flow, resolution, inference)
+    train_iterator = make_iterator(train_flow, resolution, get_code)
+    test_iterator = make_iterator(test_flow, resolution, get_code)
 
     # Get data for initialization
-    data_init = make_batch(train_iterator, n_batch_train, n_batch_init, inference=inference)
+    data_init = make_batch(train_iterator, n_batch_train, n_batch_init, get_code=get_code)
 
     return train_iterator, test_iterator, data_init
 
 
-def make_batch(iterator, iterator_batch_size, required_batch_size, inference=False):
+def make_batch(iterator, iterator_batch_size, required_batch_size, get_code=False):
     ib, rb = iterator_batch_size, required_batch_size
     #assert rb % ib == 0
     k = int(np.ceil(rb / ib))
     xs, ys, codes = [], [], []
     for i in range(k):
-        if not inference:
+        if get_code:
             x, y, code = iterator()
             codes.append(code)
         else:
@@ -141,7 +141,7 @@ def make_batch(iterator, iterator_batch_size, required_batch_size, inference=Fal
         xs.append(x)
         ys.append(y)
     x, y = np.concatenate(xs)[:rb], np.concatenate(ys)[:rb]
-    if not inference:
+    if get_code:
         code = np.concatenate(codes)[:rb]
         return {'x': x, 'y': y, 'code': code}
     else:
