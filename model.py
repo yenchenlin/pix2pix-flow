@@ -39,11 +39,17 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
         m.train = lambda _lr: sess.run([train_op, stats_train], {lr: _lr})[1]
     else:
         def _train(_lr):
-            _x, _y, _code = train_iterator()
-            return sess.run([train_op, stats_train], {feeds['x']: _x,
-                                                      feeds['y']: _y,
-                                                      feeds['code']: _code,
-                                                      lr: _lr})[1]
+            if hps.code_path != None:
+                _x, _y, _code = train_iterator()
+                return sess.run([train_op, stats_train], {feeds['x']: _x,
+                                                          feeds['y']: _y,
+                                                          feeds['code']: _code,
+                                                          lr: _lr})[1]
+            else:
+                _x, _y = train_iterator()
+                return sess.run([train_op, stats_train], {feeds['x']: _x,
+                                                          feeds['y']: _y,
+                                                          lr: _lr})[1]
         m.train = _train
 
     m.polyak_swap = lambda: sess.run(polyak_swap_op)
@@ -54,10 +60,15 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
         m.test = lambda: sess.run(stats_test)
     else:
         def _test():
-            _x, _y, _code = test_iterator()
-            return sess.run(stats_test, {feeds['x']: _x,
-                                         feeds['y']: _y,
-                                         feeds['code']: _code})
+            if hps.code_path != None:
+                _x, _y, _code = test_iterator()
+                return sess.run(stats_test, {feeds['x']: _x,
+                                             feeds['y']: _y,
+                                             feeds['code']: _code})
+            else:
+                _x, _y = test_iterator()
+                return sess.run(stats_test, {feeds['x']: _x,
+                                             feeds['y']: _y})
         m.test = _test
 
     # === Saving and restoring
@@ -76,9 +87,14 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
         with Z.arg_scope([Z.get_variable_ddi, Z.actnorm], init=True):
             results_init = f_loss(None, True, reuse=True)
         sess.run(tf.global_variables_initializer())
-        sess.run(results_init, {feeds['x']: data_init['x'],
-                                feeds['y']: data_init['y'],
-                                feeds['code']: data_init['code']})
+        if hps.code_path != None:
+            feeds_dict = {feeds['x']: data_init['x'],
+                          feeds['y']: data_init['y'],
+                          feeds['code']: data_init['code']}
+        else:
+            feeds_dict = {feeds['x']: data_init['x'],
+                          feeds['y']: data_init['y']}
+        sess.run(results_init, feeds_dict)
     sess.run(hvd.broadcast_global_variables(0))
 
     return m
@@ -150,7 +166,8 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
         X = tf.placeholder(
             tf.uint8, [None, hps.image_size, hps.image_size, 3], name='image')
         Y = tf.placeholder(tf.int32, [None], name='label')
-        CODE = tf.placeholder(tf.float32, [None, hps.image_size * hps.image_size * 3], name='code')
+        if hps.code_path != None:
+            CODE = tf.placeholder(tf.float32, [None, hps.image_size * hps.image_size * 3], name='code')
         lr = tf.placeholder(tf.float32, None, name='learning_rate')
 
     encoder, decoder = codec(hps)
@@ -166,7 +183,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
     def postprocess(x):
         return tf.cast(tf.clip_by_value(tf.floor((x + .5)*hps.n_bins)*(256./hps.n_bins), 0, 255), 'uint8')
 
-    def _f_loss(x, y, code, is_training, reuse=False):
+    def _f_loss(x, y, is_training, reuse=False, code=None):
 
         with tf.variable_scope('model', reuse=reuse):
             y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
@@ -181,29 +198,31 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
             z = Z.squeeze2d(z, 2)  # > 16x16x12
             z, objective, eps = encoder(z, objective)
 
-            # L2 loss of eps and latent code from another model
-            if hps.code_loss_range == 'all':
-                eps.append(z)
-                eps = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
-                if hps.code_loss_fn == 'l2':
-                    code_loss = tf.reduce_mean(tf.squared_difference(code, eps))
-                elif hps.code_loss_fn == 'l1':
-                    code_loss = tf.reduce_mean(tf.abs(code - eps))
+            # Loss of eps and latent code from another model
+            code_loss = 0
+            if code != None:
+                if hps.code_loss_range == 'all':
+                    eps.append(z)
+                    eps = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
+                    if hps.code_loss_fn == 'l2':
+                        code_loss = tf.reduce_mean(tf.squared_difference(code, eps))
+                    elif hps.code_loss_fn == 'l1':
+                        code_loss = tf.reduce_mean(tf.abs(code - eps))
+                    else:
+                        raise NotImplementedError()
+                elif hps.code_loss_range == 'last_2':
+                    raise NotImplementedError()
+                elif hps.code_loss_range == 'last':
+                    z_flatten = tf.contrib.layers.flatten(z)
+                    z_dim = z_flatten.get_shape().as_list()[-1]
+                    if hps.code_loss_fn == 'l2':
+                        code_loss = tf.reduce_mean(tf.squared_difference(code[:, -z_dim:], z_flatten))
+                    elif hps.code_loss_fn == 'l1':
+                        code_loss = tf.reduce_mean(tf.abs(code[:, -z_dim:] - z_flatten))
+                    else:
+                        raise NotImplementedError()
                 else:
                     raise NotImplementedError()
-            elif hps.code_loss_range == 'last_2':
-                raise NotImplementedError()
-            elif hps.code_loss_range == 'last':
-                z_flatten = tf.contrib.layers.flatten(z)
-                z_dim = z_flatten.get_shape().as_list()[-1]
-                if hps.code_loss_fn == 'l2':
-                    code_loss = tf.reduce_mean(tf.squared_difference(code[:, -z_dim:], z_flatten))
-                elif hps.code_loss_fn == 'l1':
-                    code_loss = tf.reduce_mean(tf.abs(code[:, -z_dim:] - z_flatten))
-                else:
-                    raise NotImplementedError()
-            else:
-                raise NotImplementedError()
 
             # Prior
             hps.top_shape = Z.int_shape(z)[1:]
@@ -237,11 +256,16 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
         if hps.direct_iterator and iterator is not None:
             x, y = iterator.get_next()
         else:
-            x, y, code = X, Y, CODE
-        bits_x, bits_y, pred_loss, code_loss = _f_loss(x, y, code, is_training, reuse)
+            if hps.code_path != None:
+                x, y, code = X, Y, CODE
+            else:
+                x, y = X, Y
+                code = None
+        bits_x, bits_y, pred_loss, code_loss = _f_loss(x, y, is_training, reuse, code=code)
         local_loss = bits_x + hps.weight_y * bits_y
         # Add code difference loss
-        local_loss += hps.code_loss_scale * code_loss
+        if hps.code_path != None:
+            local_loss += hps.code_loss_scale * code_loss
         stats = [local_loss, bits_x, bits_y, pred_loss]
         global_stats = Z.allreduce_mean(
             tf.stack([tf.reduce_mean(i) for i in stats]))
@@ -249,7 +273,9 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
         return tf.reduce_mean(local_loss), global_stats
 
     print("Before abstract model")
-    feeds = {'x': X, 'y': Y, 'code': CODE}
+    feeds = {'x': X, 'y': Y}
+    if hps.code_path != None:
+        feeds['code'] = CODE
     m = abstract_model_xy(sess, hps, feeds, train_iterator,
                           test_iterator, data_init, lr, f_loss)
     print("After abstract model")

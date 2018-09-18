@@ -412,7 +412,7 @@ if __name__ == "__main__":
 
     # Pix2pix
     parser.add_argument("--code_path", type=str, default=None,
-                        help="Path to the code used to supervise z. Set it to None to only get x,y
+                        help="Path to the code used to supervise z. Set it to None to only get x,y \
                               from data loader")
     parser.add_argument("--flip_color", action="store_true",
                         help="Whether flip the color of mnist")
