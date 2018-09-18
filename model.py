@@ -182,23 +182,23 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
             z, objective, eps = encoder(z, objective)
 
             # L2 loss of eps and latent code from another model
-            if hps.code_loss == 'all':
+            if hps.code_loss_range == 'all':
                 eps.append(z)
                 eps = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
-                if hps.code_loss_type == 'l2':
+                if hps.code_loss_fn == 'l2':
                     code_loss = tf.reduce_mean(tf.squared_difference(code, eps))
-                elif hps.code_loss_type == 'l1':
+                elif hps.code_loss_fn == 'l1':
                     code_loss = tf.reduce_mean(tf.abs(code - eps))
                 else:
                     raise NotImplementedError()
-            elif hps.code_loss == 'last_2':
+            elif hps.code_loss_range == 'last_2':
                 raise NotImplementedError()
-            elif hps.code_loss == 'last':
+            elif hps.code_loss_range == 'last':
                 z_flatten = tf.contrib.layers.flatten(z)
                 z_dim = z_flatten.get_shape().as_list()[-1]
-                if hps.code_loss_type == 'l2':
+                if hps.code_loss_fn == 'l2':
                     code_loss = tf.reduce_mean(tf.squared_difference(code[:, -z_dim:], z_flatten))
-                elif hps.code_loss_type == 'l1':
+                elif hps.code_loss_fn == 'l1':
                     code_loss = tf.reduce_mean(tf.abs(code[:, -z_dim:] - z_flatten))
                 else:
                     raise NotImplementedError()
