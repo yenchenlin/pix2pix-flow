@@ -113,7 +113,8 @@ def get_data(hps, sess):
         import data_loaders.get_mnist_cifar as v
         train_iterator, test_iterator, data_init = \
             v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
-                       hps.local_batch_test, hps.local_batch_init, hps.image_size, flip_color=hps.flip_color)
+                       hps.local_batch_test, hps.local_batch_init, hps.image_size, flip_color=hps.flip_color,
+                       code_path=hps.code_path)
 
     else:
         raise Exception()
@@ -410,12 +411,17 @@ if __name__ == "__main__":
                         help="Coupling type: 0=additive, 1=affine")
 
     # Pix2pix
+    parser.add_argument("--code_path", type=str, default=None,
+                        help="Path to the code used to supervise z. Set it to None to only get x,y
+                              from data loader")
     parser.add_argument("--flip_color", action="store_true",
                         help="Whether flip the color of mnist")
-    parser.add_argument("--code_loss", type=str, default='all',
-                        help="How many latent codes are used to get code loss")
+    parser.add_argument("--code_loss_range", type=str, default='all',
+                        help="all/last")
+    parser.add_argument("--code_loss_fn", type=str, default='l2',
+                        help="l2/l1")
     parser.add_argument("--code_loss_scale", type=float, default=1.0,
-                        help="Scalar that is used to time code_loss")
+                        help="Scalar that is used to time the code_loss")
 
     hps = parser.parse_args()  # So error if typo
     main(hps)
