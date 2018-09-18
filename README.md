@@ -43,7 +43,7 @@ For `lsun`, since download can be quite big, you can instead follow the instruct
 
 Run wtih small depth to test
 ```
-CUDA_VISIBLE_DEVICES=0 python train.py --depth 1
+CUDA_VISIBLE_DEVICES=0 python train.py --depth 1 --epochs_full_sample 1 --epochs_full_valid 1
 ```
 
 ## Train with multiple GPUs using MPI and Horovod
