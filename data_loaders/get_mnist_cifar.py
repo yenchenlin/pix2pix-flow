@@ -37,9 +37,10 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
         y_train = np.reshape(y_train, [-1])
         y_test = np.reshape(y_test, [-1])
         if code_path != None:
-            z_train = np.load('')
+            z = np.load(code_path).item()
+            z_train = z['train']
+            z_test = z['test']
             y_train = np.concatenate([y_train[:, np.newaxis], z_train], axis=1)
-            z_test = np.load('')
             y_test = np.concatenate([y_test[:, np.newaxis], z_test], axis=1)
         # Pad with zeros to make 32x32
         x_train = np.lib.pad(x_train, ((0, 0), (2, 2), (2, 2)), 'minimum')
