@@ -70,15 +70,15 @@ def init_visualizations(hps, model, logdir):
 # ===
 def get_data(hps, sess):
     if hps.image_size == -1:
-        hps.image_size = {'mnist': 32, 'cifar10': 32, 'imagenet-oord': 64,
+        hps.image_size = {'edges': 32, 'shoes': 32, 'mnist': 32, 'cifar10': 32, 'imagenet-oord': 64,
                           'imagenet': 256, 'celeba': 256, 'lsun_realnvp': 64, 'lsun': 256}[hps.problem]
     if hps.n_test == -1:
-        hps.n_test = {'mnist': 10000, 'cifar10': 10000, 'imagenet-oord': 50000, 'imagenet': 50000,
+        hps.n_test = {'edges': 200, 'shoes': 200, 'mnist': 10000, 'cifar10': 10000, 'imagenet-oord': 50000, 'imagenet': 50000,
                       'celeba': 3000, 'lsun_realnvp': 300*hvd.size(), 'lsun': 300*hvd.size()}[hps.problem]
-    hps.n_y = {'mnist': 10, 'cifar10': 10, 'imagenet-oord': 1000,
+    hps.n_y = {'edges': 10, 'shoes': 10, 'mnist': 10, 'cifar10': 10, 'imagenet-oord': 1000,
                'imagenet': 1000, 'celeba': 1, 'lsun_realnvp': 1, 'lsun': 1}[hps.problem]
     if hps.data_dir == "":
-        hps.data_dir = {'mnist': None, 'cifar10': None, 'imagenet-oord': '/mnt/host/imagenet-oord-tfr', 'imagenet': '/mnt/host/imagenet-tfr',
+        hps.data_dir = {'edges': None, 'shoes': None, 'mnist': None, 'cifar10': None, 'imagenet-oord': '/mnt/host/imagenet-oord-tfr', 'imagenet': '/mnt/host/imagenet-tfr',
                         'celeba': '/mnt/host/celeba-reshard-tfr', 'lsun_realnvp': '/mnt/host/lsun_realnvp', 'lsun': '/mnt/host/lsun'}[hps.problem]
 
     if hps.problem == 'lsun_realnvp':
@@ -111,6 +111,13 @@ def get_data(hps, sess):
     elif hps.problem in ['mnist', 'cifar10']:
         hps.direct_iterator = False
         import data_loaders.get_mnist_cifar as v
+        train_iterator, test_iterator, data_init = \
+            v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
+                       hps.local_batch_test, hps.local_batch_init, hps.image_size, flip_color=hps.flip_color,
+                       code_path=hps.code_path)
+    elif hps.problem in ['shoes', 'edges']:
+        hps.direct_iterator = False
+        import data_loaders.get_edges_shoes as v
         train_iterator, test_iterator, data_init = \
             v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
                        hps.local_batch_test, hps.local_batch_init, hps.image_size, flip_color=hps.flip_color,
@@ -162,10 +169,15 @@ def main(hps):
         # Perform training
         train(sess, model, hps, logdir, visualise)
     else:
-        infer(sess, model, hps, test_iterator)
+        x_train, z_train = infer(sess, model, hps, train_iterator, hps.train_its)
+        x_test, z_test = infer(sess, model, hps, test_iterator, hps.full_test_its)
+        x = {'train': x_train, 'test': x_test}
+        z = {'train': z_train, 'test': z_test}
+        np.save('{}/x.npy'.format(hps.logdir), x)
+        np.save('{}/z.npy'.format(hps.logdir), z)
 
 
-def infer(sess, model, hps, iterator):
+def infer(sess, model, hps, iterator, its):
     # Example of using model in inference mode. Load saved model using hps.restore_path
     # Can provide x, y from files instead of dataset iterator
     # If model is uncondtional, always pass y = np.zeros([bs], dtype=np.int32)
@@ -174,7 +186,7 @@ def infer(sess, model, hps, iterator):
 
     xs = []
     zs = []
-    for it in range(hps.full_test_its):
+    for it in range(its):
         if hps.direct_iterator:
             # replace with x, y, attr if you're getting CelebA attributes, also modify get_data
             x, y = sess.run(iterator)
@@ -188,9 +200,10 @@ def infer(sess, model, hps, iterator):
 
     x = np.concatenate(xs, axis=0)
     z = np.concatenate(zs, axis=0)
-    np.save('{}/x.npy'.format(hps.logdir), x)
-    np.save('{}/z.npy'.format(hps.logdir), z)
-    return zs
+
+    #np.save('{}/x_{}.npy'.format(hps.logdir, name), x)
+    #np.save('{}/z_{}.npy'.format(hps.logdir, name), z)
+    return x, z
 
 
 def train(sess, model, hps, logdir, visualise):
