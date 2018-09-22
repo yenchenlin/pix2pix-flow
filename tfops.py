@@ -449,9 +449,9 @@ def gaussian_diag(mean, logsd):
     o.sample = mean + tf.exp(logsd) * o.eps
     o.sample2 = lambda eps: mean + tf.exp(logsd) * eps
     o.logps = lambda x: -0.5 * \
-        (np.log(2 * np.pi) + 2. * logsd + (x - mean) ** 2 / tf.exp(2. * logsd))
+        (np.log(2 * np.pi) + 2. * logsd + (x - mean) ** 2 / (tf.exp(2. * logsd) + 1e-10))
     o.logp = lambda x: flatten_sum(o.logps(x))
-    o.get_eps = lambda x: (x - mean) / tf.exp(logsd)
+    o.get_eps = lambda x: (x - mean) / (tf.exp(logsd) + 1e-10)
     return o
 
 
