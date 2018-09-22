@@ -105,15 +105,16 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
         else:
             raise Exception()
 
-    datagen_train.fit(x_train_X)
-    datagen_test.fit(x_test_X)
-    train_flow_X = datagen_train.flow(x_train_X, y_train_X, n_batch_train)
-    test_flow_X = datagen_test.flow(x_test_X, y_test_X, n_batch_test, shuffle=False)
+    seed = 420
+    datagen_train.fit(x_train_X, seed=seed)
+    datagen_test.fit(x_test_X, seed=seed)
+    train_flow_X = datagen_train.flow(x_train_X, y_train_X, n_batch_train, seed=seed)
+    test_flow_X = datagen_test.flow(x_test_X, y_test_X, n_batch_test, shuffle=False, seed=seed)
 
-    datagen_train.fit(x_train_Y)
-    datagen_test.fit(x_test_Y)
-    train_flow_Y = datagen_train.flow(x_train_Y, y_train_Y, n_batch_train)
-    test_flow_Y = datagen_test.flow(x_test_Y, y_test_Y, n_batch_test, shuffle=False)
+    datagen_train.fit(x_train_Y, seed=seed)
+    datagen_test.fit(x_test_Y, seed=seed)
+    train_flow_Y = datagen_train.flow(x_train_Y, y_train_Y, n_batch_train, seed=seed)
+    test_flow_Y = datagen_test.flow(x_test_Y, y_test_Y, n_batch_test, shuffle=False, seed=seed)
 
     def make_iterator(flow, resolution, code_path=None):
         def iterator():
@@ -121,8 +122,13 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
             x_full = x_full.astype(np.float32)
             x = downsample(x_full, resolution)
             x = x_to_uint8(x)
-            y = yz
-            return x, y
+            if code_path != None:
+                y = np.squeeze(yz[:, :1])
+                z = yz[:, 1:]
+                return x, y, z
+            else:
+                y = yz
+                return x, y
 
         return iterator
 
