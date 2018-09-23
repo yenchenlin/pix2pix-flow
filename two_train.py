@@ -164,7 +164,8 @@ def main(hps):
         model_B = model.model(sess, hps, train_iterator_B, test_iterator_B, data_init_B, model_B_name)
 
     # Initialize visualization functions
-    visualise = init_visualizations(hps, model_A, logdir)
+    visualise = {'A': init_visualizations(hps, model_A, logdir),
+                 'B': init_visualizations(hps, model_B, logdir)}
     if not hps.inference:
         # Perform training
         train(sess, model_A, model_B, hps, logdir, visualise)
@@ -179,19 +180,18 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
     n_processed = 0
     n_images = 0
     train_time = 0.0
-    test_loss_best = 999999
+    test_loss_best = {'A': 999999, 'B': 999999}
 
     if hvd.rank() == 0:
-        train_logger = ResultLogger(logdir + "train.txt", **hps.__dict__)
-        test_logger = ResultLogger(logdir + "test.txt", **hps.__dict__)
+        train_logger = {'A': ResultLogger(logdir + "train_A.txt", **hps.__dict__),
+                        'B': ResultLogger(logdir + "train_B.txt", **hps.__dict__)}
+        test_logger = {'A': ResultLogger(logdir + "test_A.txt", **hps.__dict__),
+                       'B': ResultLogger(logdir + "test_B.txt", **hps.__dict__)}
 
     tcurr = time.time()
     for epoch in range(1, hps.epochs):
-
         t = time.time()
-
-        train_results_A = []
-        train_results_B = []
+        train_results = {'A': [], 'B': []}
         for it in range(hps.train_its):
 
             # Set learning rate, linearly annealed from 0 in the first hps.epochs_warmup epochs.
@@ -200,10 +200,11 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
 
             # Run a training step synchronously.
             _t = time.time()
-            train_results_A += [model_A.train(lr)]
-            train_results_B += [model_B.train(lr)]
+            train_results['A'] += [model_A.train(lr)]
+            train_results['B'] += [model_B.train(lr)]
             if hps.verbose and hvd.rank() == 0:
-                _print(n_processed, time.time()-_t, train_results_A[-1])
+                _print(n_processed, time.time()-_t, train_results['A'][-1])
+                _print(n_processed, time.time()-_t, train_results['B'][-1])
                 sys.stdout.flush()
 
             # Images seen wrt anchor resolution
@@ -211,21 +212,22 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
             # Actual images seen at current resolution
             n_images += hvd.size() * hps.local_batch_train
 
-        train_results_A = np.mean(np.asarray(train_results_A), axis=0)
-        train_results_B = np.mean(np.asarray(train_results_B), axis=0)
+        train_results['A'] = np.mean(np.asarray(train_results['A']), axis=0)
+        train_results['B'] = np.mean(np.asarray(train_results['B']), axis=0)
 
         dtrain = time.time() - t
         ips = (hps.train_its * hvd.size() * hps.local_batch_train) / dtrain
         train_time += dtrain
 
         if hvd.rank() == 0:
-            train_logger.log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
-                train_time), **process_results(train_results_A))
+            train_logger['A'].log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
+                train_time), **process_results(train_results['A']))
+            train_logger['B'].log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
+                train_time), **process_results(train_results['B']))
 
         if epoch < 10 or (epoch < 50 and epoch % 10 == 0) or epoch % hps.epochs_full_valid == 0:
-            test_results = []
-            msg_A = 'A'
-            msg_B = 'B'
+            test_results = {'A': [], 'B': []}
+            msg = {'A': 'A', 'B': 'B'}
 
             t = time.time()
             # model.polyak_swap()
@@ -233,34 +235,42 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
             if epoch % hps.epochs_full_valid == 0:
                 # Full validation run
                 for it in range(hps.full_test_its):
-                    test_results += [model_A.test()]
-                test_results = np.mean(np.asarray(test_results), axis=0)
+                    test_results['A'] += [model_A.test()]
+                    test_results['B'] += [model_B.test()]
+                test_results['A'] = np.mean(np.asarray(test_results['A']), axis=0)
+                test_results['B'] = np.mean(np.asarray(test_results['B']), axis=0)
 
                 if hvd.rank() == 0:
-                    test_logger.log(epoch=epoch, n_processed=n_processed,
-                                    n_images=n_images, **process_results(test_results))
-
+                    test_logger['A'].log(epoch=epoch, n_processed=n_processed,
+                                         n_images=n_images, **process_results(test_results['A']))
+                    test_logger['B'].log(epoch=epoch, n_processed=n_processed,
+                                         n_images=n_images, **process_results(test_results['B']))
                     # Save checkpoint
-                    if test_results[0] < test_loss_best:
-                        test_loss_best = test_results[0]
-                        model_A.save(logdir+"model_best_loss.ckpt")
-                        msg += ' *'
+                    if test_results['A'][0] < test_loss_best['A']:
+                        test_loss_best['A'] = test_results['A'][0]
+                        model_A.save(logdir+"model_A_best_loss.ckpt")
+                        msg['A'] += ' *'
+                    if test_results['B'][0] < test_loss_best['B']:
+                        test_loss_best['B'] = test_results['B'][0]
+                        model_B.save(logdir+"model_B_best_loss.ckpt")
+                        msg['B'] += ' *'
 
             dtest = time.time() - t
 
             # Sample
             t = time.time()
             if epoch == 1 or epoch == 10 or epoch % hps.epochs_full_sample == 0:
-                visualise(epoch)
+                visualise['A'](epoch)
+                visualise['B'](epoch)
             dsample = time.time() - t
 
             if hvd.rank() == 0:
                 dcurr = time.time() - tcurr
                 tcurr = time.time()
                 _print(epoch, n_processed, n_images, "{:.1f} {:.1f} {:.1f} {:.1f} {:.1f}".format(
-                    ips, dtrain, dtest, dsample, dcurr), train_results_A, test_results, msg_A)
+                    ips, dtrain, dtest, dsample, dcurr), train_results['A'], test_results['A'], msg['A'])
                 _print(epoch, n_processed, n_images, "{:.1f} {:.1f} {:.1f} {:.1f} {:.1f}".format(
-                    ips, dtrain, dtest, dsample, dcurr), train_results_B, test_results, msg_B)
+                    ips, dtrain, dtest, dsample, dcurr), train_results['B'], test_results['B'], msg['B'])
             # model.polyak_swap()
 
     if hvd.rank() == 0:
