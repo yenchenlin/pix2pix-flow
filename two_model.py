@@ -86,7 +86,10 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
     else:
         with Z.arg_scope([Z.get_variable_ddi, Z.actnorm], init=True):
             results_init = f_loss(None, True, reuse=True)
-        sess.run(tf.global_variables_initializer())
+
+        all_params = tf.global_variables()
+        params = [param for param in all_params if domain+'/' in param.name]
+        sess.run(tf.variables_initializer(params))
         if hps.code_path != None:
             feeds_dict = {feeds['x']: data_init['x'],
                           feeds['y']: data_init['y'],
