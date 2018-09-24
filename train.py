@@ -12,6 +12,8 @@ import tensorflow as tf
 import graphics
 from utils import ResultLogger
 
+from tqdm import tqdm
+
 learn = tf.contrib.learn
 
 # Surpress verbose warnings
@@ -186,7 +188,7 @@ def infer(sess, model, hps, iterator, its):
 
     xs = []
     zs = []
-    for it in range(its):
+    for it in tqdm(range(its)):
         if hps.direct_iterator:
             # replace with x, y, attr if you're getting CelebA attributes, also modify get_data
             x, y = sess.run(iterator)
