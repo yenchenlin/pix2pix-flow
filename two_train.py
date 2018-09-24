@@ -26,7 +26,7 @@ def _print(*args, **kwargs):
         print(*args, **kwargs)
 
 
-def init_visualizations(hps, model, logdir):
+def init_visualizations(hps, model, logdir, model_name):
 
     def sample_batch(y, eps):
         n_batch = hps.local_batch_train
@@ -64,7 +64,7 @@ def init_visualizations(hps, model, logdir):
             x_sample = np.reshape(
                 x_samples[i], (n_batch, hps.image_size, hps.image_size, 3))
             graphics.save_raster(x_sample, logdir +
-                                 'epoch_{}_sample_{}.png'.format(epoch, i))
+                                 '{}_epoch_{}_sample_{}.png'.format(model_name, epoch, i))
 
     return draw_samples
 
@@ -164,11 +164,12 @@ def main(hps):
         model_B = model.model(sess, hps, train_iterator_B, test_iterator_B, data_init_B, model_B_name)
 
     # Initialize visualization functions
-    visualise = {'A': init_visualizations(hps, model_A, logdir),
-                 'B': init_visualizations(hps, model_B, logdir)}
+    visualise = {'A': init_visualizations(hps, model_A, logdir, model_A_name),
+                 'B': init_visualizations(hps, model_B, logdir, model_B_name)}
     if not hps.inference:
         # Perform training
         train(sess, model_A, model_B, hps, logdir, visualise)
+
 
 def train(sess, model_A, model_B, hps, logdir, visualise):
     _print(hps)
@@ -200,8 +201,10 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
 
             # Run a training step synchronously.
             _t = time.time()
-            train_results['A'] += [model_A.train(lr)]
-            train_results['B'] += [model_B.train(lr)]
+            x_A, y_A, code_A = model_A.get_input()
+            x_B, y_B, code_B = model_B.get_input()
+            train_results['A'] += [model_A.train(lr, x_A, y_A, code_B)]
+            train_results['B'] += [model_B.train(lr, x_B, y_B, code_A)]
             if hps.verbose and hvd.rank() == 0:
                 _print(n_processed, time.time()-_t, train_results['A'][-1])
                 _print(n_processed, time.time()-_t, train_results['B'][-1])
@@ -267,6 +270,8 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
             if hvd.rank() == 0:
                 dcurr = time.time() - tcurr
                 tcurr = time.time()
+                msg['A'] += ', train_time: {}'.format(int(train_time))
+                msg['B'] += ', train_time: {}'.format(int(train_time))
                 _print(epoch, n_processed, n_images, "{:.1f} {:.1f} {:.1f} {:.1f} {:.1f}".format(
                     ips, dtrain, dtest, dsample, dcurr), train_results['A'], test_results['A'], msg['A'])
                 _print(epoch, n_processed, n_images, "{:.1f} {:.1f} {:.1f} {:.1f} {:.1f}".format(
@@ -402,12 +407,11 @@ if __name__ == "__main__":
                         help="Coupling type: 0=additive, 1=affine")
 
     # Pix2pix
-    parser.add_argument("--code_path", type=str, default=None,
-                        help="Path to the code used to supervise z. Set it to None to only get x,y \
-                              from data loader")
+    parser.add_argument("--joint-train", action="store_true",
+                        help="Get each other's code to supervise latent space")
     parser.add_argument("--flip_color", action="store_true",
                         help="Whether flip the color of mnist")
-    parser.add_argument("--code_loss_range", type=str, default='all',
+    parser.add_argument("--code_loss_range", type=str, default='last',
                         help="all/last")
     parser.add_argument("--code_loss_fn", type=str, default='l2',
                         help="l2/l1")
