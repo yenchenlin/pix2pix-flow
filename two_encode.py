@@ -168,8 +168,7 @@ def main(hps):
     # visualise = {'A': init_visualizations(hps, model_A, logdir, model_A_name),
     #              'B': init_visualizations(hps, model_B, logdir, model_B_name)}
     if not hps.inference:
-        # Perform training
-        train(sess, model_A, model_B, hps, logdir, visualise)
+        raise NotImplementedError()
     else:
         x_train, z_train = infer(sess, model_A, hps, train_iterator_A, hps.train_its)
         x_test, z_test = infer(sess, model_A, hps, test_iterator_A, hps.full_test_its)
@@ -177,6 +176,7 @@ def main(hps):
         z = {'train': z_train, 'test': z_test}
         np.save('{}/x_A.npy'.format(hps.logdir), x)
         np.save('{}/z_A.npy'.format(hps.logdir), z)
+
 
 def infer(sess, model, hps, iterator, its):
     # Example of using model in inference mode. Load saved model using hps.restore_path
@@ -206,116 +206,6 @@ def infer(sess, model, hps, iterator, its):
     #np.save('{}/z_{}.npy'.format(hps.logdir, name), z)
     return x, z
 
-
-def train(sess, model_A, model_B, hps, logdir, visualise):
-    _print(hps)
-    _print('Starting training. Logging to', logdir)
-    _print('epoch n_processed n_images ips dtrain dtest dsample dtot train_results test_results msg')
-
-    # Train
-    sess.graph.finalize()
-    n_processed = 0
-    n_images = 0
-    train_time = 0.0
-    test_loss_best = {'A': 999999, 'B': 999999}
-
-    if hvd.rank() == 0:
-        train_logger = {'A': ResultLogger(logdir + "train_A.txt", **hps.__dict__),
-                        'B': ResultLogger(logdir + "train_B.txt", **hps.__dict__)}
-        test_logger = {'A': ResultLogger(logdir + "test_A.txt", **hps.__dict__),
-                       'B': ResultLogger(logdir + "test_B.txt", **hps.__dict__)}
-
-    tcurr = time.time()
-    for epoch in range(1, hps.epochs):
-        t = time.time()
-        train_results = {'A': [], 'B': []}
-        for it in range(hps.train_its):
-
-            # Set learning rate, linearly annealed from 0 in the first hps.epochs_warmup epochs.
-            lr = hps.lr * min(1., n_processed /
-                              (hps.n_train * hps.epochs_warmup))
-
-            # Run a training step synchronously.
-            _t = time.time()
-            x_A, y_A, code_A = model_A.get_input()
-            x_B, y_B, code_B = model_B.get_input()
-            train_results['A'] += [model_A.train(lr, x_A, y_A, code_B)]
-            train_results['B'] += [model_B.train(lr, x_B, y_B, code_A)]
-            if hps.verbose and hvd.rank() == 0:
-                _print(n_processed, time.time()-_t, train_results['A'][-1])
-                _print(n_processed, time.time()-_t, train_results['B'][-1])
-                sys.stdout.flush()
-
-            # Images seen wrt anchor resolution
-            n_processed += hvd.size() * hps.n_batch_train
-            # Actual images seen at current resolution
-            n_images += hvd.size() * hps.local_batch_train
-
-        train_results['A'] = np.mean(np.asarray(train_results['A']), axis=0)
-        train_results['B'] = np.mean(np.asarray(train_results['B']), axis=0)
-
-        dtrain = time.time() - t
-        ips = (hps.train_its * hvd.size() * hps.local_batch_train) / dtrain
-        train_time += dtrain
-
-        if hvd.rank() == 0:
-            train_logger['A'].log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
-                train_time), **process_results(train_results['A']))
-            train_logger['B'].log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
-                train_time), **process_results(train_results['B']))
-
-        if epoch < 10 or (epoch < 50 and epoch % 10 == 0) or epoch % hps.epochs_full_valid == 0:
-            test_results = {'A': [], 'B': []}
-            msg = {'A': 'A', 'B': 'B'}
-
-            t = time.time()
-            # model.polyak_swap()
-
-            if epoch % hps.epochs_full_valid == 0:
-                # Full validation run
-                for it in range(hps.full_test_its):
-                    test_results['A'] += [model_A.test()]
-                    test_results['B'] += [model_B.test()]
-                test_results['A'] = np.mean(np.asarray(test_results['A']), axis=0)
-                test_results['B'] = np.mean(np.asarray(test_results['B']), axis=0)
-
-                if hvd.rank() == 0:
-                    test_logger['A'].log(epoch=epoch, n_processed=n_processed,
-                                         n_images=n_images, **process_results(test_results['A']))
-                    test_logger['B'].log(epoch=epoch, n_processed=n_processed,
-                                         n_images=n_images, **process_results(test_results['B']))
-                    # Save checkpoint
-                    if test_results['A'][0] < test_loss_best['A']:
-                        test_loss_best['A'] = test_results['A'][0]
-                        model_A.save(logdir+"model_A_best_loss.ckpt")
-                        msg['A'] += ' *'
-                    if test_results['B'][0] < test_loss_best['B']:
-                        test_loss_best['B'] = test_results['B'][0]
-                        model_B.save(logdir+"model_B_best_loss.ckpt")
-                        msg['B'] += ' *'
-
-            dtest = time.time() - t
-
-            # Sample
-            t = time.time()
-            if epoch == 1 or epoch == 10 or epoch % hps.epochs_full_sample == 0:
-                visualise['A'](epoch)
-                visualise['B'](epoch)
-            dsample = time.time() - t
-
-            if hvd.rank() == 0:
-                dcurr = time.time() - tcurr
-                tcurr = time.time()
-                msg['A'] += ', train_time: {}'.format(int(train_time))
-                msg['B'] += ', train_time: {}'.format(int(train_time))
-                _print(epoch, n_processed, n_images, "{:.1f} {:.1f} {:.1f} {:.1f} {:.1f}".format(
-                    ips, dtrain, dtest, dsample, dcurr), train_results['A'], test_results['A'], msg['A'])
-                _print(epoch, n_processed, n_images, "{:.1f} {:.1f} {:.1f} {:.1f} {:.1f}".format(
-                    ips, dtrain, dtest, dsample, dcurr), train_results['B'], test_results['B'], msg['B'])
-            # model.polyak_swap()
-
-    if hvd.rank() == 0:
-        _print("Finished!")
 
 # Get number of training and validation iterations
 def get_its(hps):
