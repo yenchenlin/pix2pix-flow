@@ -157,25 +157,24 @@ def main(hps):
 
     # Create model
     import two_model as model
-    model_A_name = 'A'
-    model_B_name = 'B'
-    with tf.variable_scope(model_A_name):
-        model_A = model.model(sess, hps, train_iterator_A, test_iterator_A, data_init_A, model_A_name)
+    model_name = hps.model_name
+    train_iterator = train_iterator_A if model_name == 'A' else train_iterator_B
+    test_iterator = test_iterator_A if model_name == 'A' else test_iterator_B
+    data_init = data_init_A if model_name == 'A' else data_init_B
+    with tf.variable_scope(model_name):
+        model = model.model(sess, hps, train_iterator, test_iterator, data_init, model_name)
     # with tf.variable_scope(model_B_name):
     #     model_B = model.model(sess, hps, train_iterator_B, test_iterator_B, data_init_B, model_B_name)
 
-    # Initialize visualization functions
-    # visualise = {'A': init_visualizations(hps, model_A, logdir, model_A_name),
-    #              'B': init_visualizations(hps, model_B, logdir, model_B_name)}
     if not hps.inference:
         raise NotImplementedError()
     else:
-        x_train, z_train = infer(sess, model_A, hps, train_iterator_A, hps.train_its)
-        x_test, z_test = infer(sess, model_A, hps, test_iterator_A, hps.full_test_its)
+        x_train, z_train = infer(sess, model, hps, train_iterator, hps.train_its)
+        x_test, z_test = infer(sess, model, hps, test_iterator, hps.full_test_its)
         x = {'train': x_train, 'test': x_test}
         z = {'train': z_train, 'test': z_test}
-        np.save('{}/x_A.npy'.format(hps.logdir), x)
-        np.save('{}/z_A.npy'.format(hps.logdir), z)
+        np.save('{}/x_{}.npy'.format(hps.logdir, hps.model_name), x)
+        np.save('{}/z_{}.npy'.format(hps.logdir, hps.model_name), z)
 
 
 def infer(sess, model, hps, iterator, its):
@@ -343,6 +342,10 @@ if __name__ == "__main__":
                         help="l2/l1")
     parser.add_argument("--code_loss_scale", type=float, default=1.0,
                         help="Scalar that is used to time the code_loss")
+
+    # Encode
+    parser.add_argument("--model_name", type=str, default='A',
+                        help="A/B")
 
     hps = parser.parse_args()  # So error if typo
     main(hps)
