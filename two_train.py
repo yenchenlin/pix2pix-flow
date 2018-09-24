@@ -26,9 +26,9 @@ def _print(*args, **kwargs):
         print(*args, **kwargs)
 
 
-def init_visualizations(hps, model, logdir, model_name):
+def init_visualizations(hps, logdir, model_A, model_B, model_name_A, model_name_B):
 
-    def sample_batch(y, eps):
+    def sample_batch(y, eps, model):
         n_batch = hps.local_batch_train
         xs = []
         for i in range(int(np.ceil(len(eps) / n_batch))):
@@ -49,22 +49,24 @@ def init_visualizations(hps, model, logdir, model_name):
         # temperatures = [0., .25, .5, .626, .75, .875, 1.] #previously
         temperatures = [0., .25, .5, .6, .7, .8, .9, 1.]
 
-        x_samples = []
-        x_samples.append(sample_batch(y, [.0]*n_batch))
-        x_samples.append(sample_batch(y, [.25]*n_batch))
-        x_samples.append(sample_batch(y, [.5]*n_batch))
-        x_samples.append(sample_batch(y, [.6]*n_batch))
-        x_samples.append(sample_batch(y, [.7]*n_batch))
-        x_samples.append(sample_batch(y, [.8]*n_batch))
-        x_samples.append(sample_batch(y, [.9] * n_batch))
-        x_samples.append(sample_batch(y, [1.]*n_batch))
-        # previously: 0, .25, .5, .625, .75, .875, 1.
+        model = {model_name_A: model_A, model_name_B: model_B}
+        x_samples = {model_name_A: [], model_name_B: []}
+        for model_name in [model_name_A, model_name_B]:
+            x_samples[model_name].append(sample_batch(y, [.0]*n_batch, model[model_name]))
+            x_samples[model_name].append(sample_batch(y, [.25]*n_batch, model[model_name]))
+            x_samples[model_name].append(sample_batch(y, [.5]*n_batch, model[model_name]))
+            x_samples[model_name].append(sample_batch(y, [.6]*n_batch, model[model_name]))
+            x_samples[model_name].append(sample_batch(y, [.7]*n_batch, model[model_name]))
+            x_samples[model_name].append(sample_batch(y, [.8]*n_batch, model[model_name]))
+            x_samples[model_name].append(sample_batch(y, [.9] * n_batch, model[model_name]))
+            x_samples[model_name].append(sample_batch(y, [1.]*n_batch, model[model_name]))
+            # previously: 0, .25, .5, .625, .75, .875, 1.
 
-        for i in range(len(x_samples)):
-            x_sample = np.reshape(
-                x_samples[i], (n_batch, hps.image_size, hps.image_size, 3))
-            graphics.save_raster(x_sample, logdir +
-                                 '{}_epoch_{}_sample_{}.png'.format(model_name, epoch, i))
+            for i in range(len(x_samples)):
+                x_sample = np.reshape(
+                    x_samples[model_name][i], (n_batch, hps.image_size, hps.image_size, 3))
+                graphics.save_raster(x_sample, logdir +
+                                     '{}_epoch_{}_sample_{}.png'.format(model_name, epoch, i))
 
     return draw_samples
 
@@ -73,15 +75,15 @@ def init_visualizations(hps, model, logdir, model_name):
 # ===
 def get_data(hps, sess):
     if hps.image_size == -1:
-        hps.image_size = {'edges': 32, 'shoes': 32, 'mnist': 32, 'cifar10': 32, 'imagenet-oord': 64,
+        hps.image_size = {'edges2shoes': 32, 'mnist': 32, 'cifar10': 32, 'imagenet-oord': 64,
                           'imagenet': 256, 'celeba': 256, 'lsun_realnvp': 64, 'lsun': 256}[hps.problem]
     if hps.n_test == -1:
-        hps.n_test = {'edges': 200, 'shoes': 200, 'mnist': 10000, 'cifar10': 10000, 'imagenet-oord': 50000, 'imagenet': 50000,
+        hps.n_test = {'edges2shoes': 200, 'mnist': 10000, 'cifar10': 10000, 'imagenet-oord': 50000, 'imagenet': 50000,
                       'celeba': 3000, 'lsun_realnvp': 300*hvd.size(), 'lsun': 300*hvd.size()}[hps.problem]
-    hps.n_y = {'edges': 10, 'shoes': 10, 'mnist': 10, 'cifar10': 10, 'imagenet-oord': 1000,
+    hps.n_y = {'edges2shoes': 10, 'mnist': 10, 'cifar10': 10, 'imagenet-oord': 1000,
                'imagenet': 1000, 'celeba': 1, 'lsun_realnvp': 1, 'lsun': 1}[hps.problem]
     if hps.data_dir == "":
-        hps.data_dir = {'edges': None, 'shoes': None, 'mnist': None, 'cifar10': None, 'imagenet-oord': '/mnt/host/imagenet-oord-tfr', 'imagenet': '/mnt/host/imagenet-tfr',
+        hps.data_dir = {'edges2shoes': None, 'mnist': None, 'cifar10': None, 'imagenet-oord': '/mnt/host/imagenet-oord-tfr', 'imagenet': '/mnt/host/imagenet-tfr',
                         'celeba': '/mnt/host/celeba-reshard-tfr', 'lsun_realnvp': '/mnt/host/lsun_realnvp', 'lsun': '/mnt/host/lsun'}[hps.problem]
 
     if hps.problem == 'lsun_realnvp':
@@ -117,7 +119,12 @@ def get_data(hps, sess):
         train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B = \
             v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
                        hps.local_batch_test, hps.local_batch_init, hps.image_size)
-
+    elif hps.problem in ['edges2shoes']:
+        hps.direct_iterator = False
+        import data_loaders.get_edges_shoes_joint as v
+        train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B = \
+            v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
+                       hps.local_batch_test, hps.local_batch_init, hps.image_size)
     else:
         raise Exception()
 
@@ -164,8 +171,7 @@ def main(hps):
         model_B = model.model(sess, hps, train_iterator_B, test_iterator_B, data_init_B, model_B_name)
 
     # Initialize visualization functions
-    visualise = {'A': init_visualizations(hps, model_A, logdir, model_A_name),
-                 'B': init_visualizations(hps, model_B, logdir, model_B_name)}
+    visualise = init_visualizations(hps, logdir, model_A, model_B, model_A_name, model_B_name)
     if not hps.inference:
         # Perform training
         train(sess, model_A, model_B, hps, logdir, visualise)
@@ -263,8 +269,7 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
             # Sample
             t = time.time()
             if epoch == 1 or epoch == 10 or epoch % hps.epochs_full_sample == 0:
-                visualise['A'](epoch)
-                visualise['B'](epoch)
+                visualise(epoch)
             dsample = time.time() - t
 
             if hvd.rank() == 0:
@@ -393,7 +398,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_sample", type=int, default=1,
                         help="minibatch size for sample")
     parser.add_argument("--epochs_full_sample", type=int,
-                        default=10, help="Epochs between full scale sample")
+                        default=5, help="Epochs between full scale sample")
 
     # Ablation
     parser.add_argument("--learntop", action="store_true",
@@ -407,7 +412,7 @@ if __name__ == "__main__":
                         help="Coupling type: 0=additive, 1=affine")
 
     # Pix2pix
-    parser.add_argument("--joint-train", action="store_true",
+    parser.add_argument("--joint_train", action="store_true",
                         help="Get each other's code to supervise latent space")
     parser.add_argument("--flip_color", action="store_true",
                         help="Whether flip the color of mnist")
