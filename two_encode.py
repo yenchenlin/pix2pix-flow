@@ -74,15 +74,15 @@ def init_visualizations(hps, model, logdir, model_name):
 # ===
 def get_data(hps, sess):
     if hps.image_size == -1:
-        hps.image_size = {'edges': 32, 'shoes': 32, 'mnist': 32, 'cifar10': 32, 'imagenet-oord': 64,
+        hps.image_size = {'edges2shoes': 32, 'mnist': 32, 'cifar10': 32, 'imagenet-oord': 64,
                           'imagenet': 256, 'celeba': 256, 'lsun_realnvp': 64, 'lsun': 256}[hps.problem]
     if hps.n_test == -1:
-        hps.n_test = {'edges': 200, 'shoes': 200, 'mnist': 10000, 'cifar10': 10000, 'imagenet-oord': 50000, 'imagenet': 50000,
+        hps.n_test = {'edges2shoes': 200, 'mnist': 10000, 'cifar10': 10000, 'imagenet-oord': 50000, 'imagenet': 50000,
                       'celeba': 3000, 'lsun_realnvp': 300*hvd.size(), 'lsun': 300*hvd.size()}[hps.problem]
-    hps.n_y = {'edges': 10, 'shoes': 10, 'mnist': 10, 'cifar10': 10, 'imagenet-oord': 1000,
+    hps.n_y = {'edges2shoes': 10, 'mnist': 10, 'cifar10': 10, 'imagenet-oord': 1000,
                'imagenet': 1000, 'celeba': 1, 'lsun_realnvp': 1, 'lsun': 1}[hps.problem]
     if hps.data_dir == "":
-        hps.data_dir = {'edges': None, 'shoes': None, 'mnist': None, 'cifar10': None, 'imagenet-oord': '/mnt/host/imagenet-oord-tfr', 'imagenet': '/mnt/host/imagenet-tfr',
+        hps.data_dir = {'edges2shoes': None, 'mnist': None, 'cifar10': None, 'imagenet-oord': '/mnt/host/imagenet-oord-tfr', 'imagenet': '/mnt/host/imagenet-tfr',
                         'celeba': '/mnt/host/celeba-reshard-tfr', 'lsun_realnvp': '/mnt/host/lsun_realnvp', 'lsun': '/mnt/host/lsun'}[hps.problem]
 
     if hps.problem == 'lsun_realnvp':
@@ -118,7 +118,12 @@ def get_data(hps, sess):
         train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B = \
             v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
                        hps.local_batch_test, hps.local_batch_init, hps.image_size)
-
+    elif hps.problem in ['edges2shoes']:
+        hps.direct_iterator = False
+        import data_loaders.get_edges_shoes_joint as v
+        train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B = \
+            v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
+                       hps.local_batch_test, hps.local_batch_init, hps.image_size)
     else:
         raise Exception()
 
