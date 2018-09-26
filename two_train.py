@@ -58,11 +58,10 @@ def init_visualizations(hps, logdir, model_A, model_B, model_name_A, model_name_
             x_samples[model_name].append(sample_batch(y, [.6]*n_batch, model[model_name]))
             x_samples[model_name].append(sample_batch(y, [.7]*n_batch, model[model_name]))
             x_samples[model_name].append(sample_batch(y, [.8]*n_batch, model[model_name]))
-            x_samples[model_name].append(sample_batch(y, [.9] * n_batch, model[model_name]))
+            x_samples[model_name].append(sample_batch(y, [.9]*n_batch, model[model_name]))
             x_samples[model_name].append(sample_batch(y, [1.]*n_batch, model[model_name]))
             # previously: 0, .25, .5, .625, .75, .875, 1.
-
-            for i in range(len(x_samples)):
+            for i in range(len(x_samples[model_name])):
                 x_sample = np.reshape(
                     x_samples[model_name][i], (n_batch, hps.image_size, hps.image_size, 3))
                 graphics.save_raster(x_sample, logdir +
