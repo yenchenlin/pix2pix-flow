@@ -205,11 +205,11 @@ def model(sess, hps, train_iterator, test_iterator, data_init, domain):
             logp, _, _ = prior("prior", y_onehot, hps)
             objective += logp(z)
 
-        with tf.variable_scope('model', reuse=True):
             # Loss of eps and flatten latent code from another model
             eps.append(z)
             eps_flatten = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
             code_loss = 0
+        with tf.variable_scope('model', reuse=True):
             if code_flatten != None:
                 if hps.code_loss_type == 'code_all':
                     if hps.code_loss_fn == 'l2':
@@ -229,7 +229,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init, domain):
                         code_loss = tf.reduce_mean(tf.abs(code_flatten[:, -z_dim:] - z_flatten))
                     else:
                         raise NotImplementedError()
-                elif hps.code_loss_type == 'y_all':
+                elif hps.code_loss_type == 'B_all':
                     # Decode the code from another model and compute L2 loss
                     # at pixel level
                     code_shapes = [[16, 16, 6], [8, 8, 12], [4, 4, 48]]
