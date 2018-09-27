@@ -23,7 +23,7 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
 
     # === Loss and optimizer
     if hps.joint_train:
-        loss_train, stats_train, eps_flatten = f_loss(train_iterator, True)
+        loss_train, stats_train, eps_flatten = f_loss(train_iterator, is_training=True)
     else:
         loss_train, stats_train = f_loss(train_iterator, True)
     # === Getting code
@@ -186,8 +186,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init, domain):
     def postprocess(x):
         return tf.cast(tf.clip_by_value(tf.floor((x + .5)*hps.n_bins)*(256./hps.n_bins), 0, 255), 'uint8')
 
-    def _f_loss(x, y, is_training, reuse=False, code=None):
-
+    def _f_loss(x, y, is_training, reuse=False, code_flatten=None):
         with tf.variable_scope('model', reuse=reuse):
             y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
 
@@ -201,36 +200,63 @@ def model(sess, hps, train_iterator, test_iterator, data_init, domain):
             z = Z.squeeze2d(z, 2)  # > 16x16x12
             z, objective, eps = encoder(z, objective)
 
-            # Loss of eps and latent code from another model
-            eps.append(z)
-            eps_flatten = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
-            code_loss = 0
-            if code != None:
-                if hps.code_loss_range == 'all':
-                    if hps.code_loss_fn == 'l2':
-                        code_loss = tf.reduce_mean(tf.squared_difference(code, eps_flatten))
-                    elif hps.code_loss_fn == 'l1':
-                        code_loss = tf.reduce_mean(tf.abs(code - eps_flatten))
-                    else:
-                        raise NotImplementedError()
-                elif hps.code_loss_range == 'last_2':
-                    raise NotImplementedError()
-                elif hps.code_loss_range == 'last':
-                    z_flatten = tf.contrib.layers.flatten(z)
-                    z_dim = z_flatten.get_shape().as_list()[-1]
-                    if hps.code_loss_fn == 'l2':
-                        code_loss = tf.reduce_mean(tf.squared_difference(code[:, -z_dim:], z_flatten))
-                    elif hps.code_loss_fn == 'l1':
-                        code_loss = tf.reduce_mean(tf.abs(code[:, -z_dim:] - z_flatten))
-                    else:
-                        raise NotImplementedError()
-                else:
-                    raise NotImplementedError()
-
             # Prior
             hps.top_shape = Z.int_shape(z)[1:]
             logp, _, _ = prior("prior", y_onehot, hps)
             objective += logp(z)
+
+        with tf.variable_scope('model', reuse=True):
+            # Loss of eps and flatten latent code from another model
+            eps.append(z)
+            eps_flatten = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
+            code_loss = 0
+            if code_flatten != None:
+                if hps.code_loss_type == 'code_all':
+                    if hps.code_loss_fn == 'l2':
+                        code_loss = tf.reduce_mean(tf.squared_difference(code_flatten, eps_flatten))
+                    elif hps.code_loss_fn == 'l1':
+                        code_loss = tf.reduce_mean(tf.abs(code_flatten - eps_flatten))
+                    else:
+                        raise NotImplementedError()
+                elif hps.code_loss_type == 'code_last_2':
+                    raise NotImplementedError()
+                elif hps.code_loss_type == 'code_last':
+                    z_flatten = tf.contrib.layers.flatten(z)
+                    z_dim = z_flatten.get_shape().as_list()[-1]
+                    if hps.code_loss_fn == 'l2':
+                        code_loss = tf.reduce_mean(tf.squared_difference(code_flatten[:, -z_dim:], z_flatten))
+                    elif hps.code_loss_fn == 'l1':
+                        code_loss = tf.reduce_mean(tf.abs(code_flatten[:, -z_dim:] - z_flatten))
+                    else:
+                        raise NotImplementedError()
+                elif hps.code_loss_type == 'y_all':
+                    # Decode the code from another model and compute L2 loss
+                    # at pixel level
+                    code_shapes = [[16, 16, 6], [8, 8, 12], [4, 4, 48]]
+                    def unflatten_code(fcode):
+                        index = 0
+                        code = []
+                        bs = tf.shape(code_flatten)[0]
+                        # bs = hps.local_batch_train
+                        for shape in code_shapes:
+                            code.append(tf.reshape(fcode[:, index:index+np.prod(shape)],
+                                                   tf.convert_to_tensor([bs] + shape)))
+                            index += np.prod(shape)
+                        return code
+                    code = unflatten_code(eps_flatten)
+                    # code[-1] is z, and code[:-1] is eps
+                    _, sample, _ = prior("prior", y_onehot, hps)
+                    z_code = sample(eps=code[-1])
+                    code_decoded = decoder(z_code, code[:-1])
+                    code_decoded = Z.unsqueeze2d(code_decoded, 2)
+                    # code_decoded = postprocess(code_decoded)
+
+                    # In order to keep image in [-0.5, 0.5], we don't apply
+                    # post process to code_decoded but instead perform preprocess(x)
+                    code_loss = tf.reduce_mean(tf.squared_difference(code_decoded, preprocess(x)))
+                    # code_loss = tf.reduce_mean(tf.squared_difference(tf.cast(code_decoded, tf.float32), tf.cast(x, tf.float32)))
+                else:
+                    raise NotImplementedError()
 
             # Generative loss
             nobj = - objective
@@ -264,7 +290,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init, domain):
             else:
                 x, y = X, Y
                 code = None
-        bits_x, bits_y, pred_loss, code_loss, eps_flatten = _f_loss(x, y, is_training, reuse, code=code)
+        bits_x, bits_y, pred_loss, code_loss, eps_flatten = _f_loss(x, y, is_training, reuse, code_flatten=code)
         local_loss = bits_x + hps.weight_y * bits_y
         # Add code difference loss
         if hps.joint_train:

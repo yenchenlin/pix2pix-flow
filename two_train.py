@@ -415,7 +415,7 @@ if __name__ == "__main__":
                         help="Get each other's code to supervise latent space")
     parser.add_argument("--flip_color", action="store_true",
                         help="Whether flip the color of mnist")
-    parser.add_argument("--code_loss_range", type=str, default='last',
+    parser.add_argument("--code_loss_type", type=str, default='last',
                         help="all/last")
     parser.add_argument("--code_loss_fn", type=str, default='l2',
                         help="l2/l1")
