@@ -292,11 +292,11 @@ def model(sess, hps, train_iterator, test_iterator, data_init, domain):
                 x, y = X, Y
                 code = None
         bits_x, bits_y, pred_loss, code_loss, eps_flatten = _f_loss(x, y, is_training, reuse, code_flatten=code)
-        local_loss = bits_x + hps.weight_y * bits_y
+        local_loss = hps.mle_loss_scale * bits_x + hps.weight_y * bits_y
         # Add code difference loss
         if hps.joint_train:
             local_loss += hps.code_loss_scale * code_loss
-        stats = [local_loss, bits_x, bits_y, pred_loss]
+        stats = [local_loss, bits_x, bits_y, pred_loss, code_loss]
         global_stats = Z.allreduce_mean(
             tf.stack([tf.reduce_mean(i) for i in stats]))
 
