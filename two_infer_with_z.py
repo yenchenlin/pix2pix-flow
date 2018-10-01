@@ -160,7 +160,7 @@ def infer(sess, model, hps, iterator):
         x = np.concatenate(xs, axis=0)
         model_name = hps.restore_path.split('/')[-2].split('logs-')[1]
         code_name = hps.code_path.split('/')[-2].split('logs-')[1]
-        np.save('z2x/{}_{}.npy'.format(model_name, code_name), x)
+        np.save('z2x/{}_{}_{}.npy'.format(model_name, code_name, hps.model_name), x)
 
     elif hps.direction == 'x2z':
         raise NotImplementedError()
@@ -324,6 +324,8 @@ if __name__ == "__main__":
                         help="l2/l1")
     parser.add_argument("--code_loss_scale", type=float, default=1.0,
                         help="Scalar that is used to time the code_loss")
+    parser.add_argument("--mle_loss_scale", type=float, default=1.0,
+                        help="Scalar that is used to time the bits_x")
 
     # Inference
     parser.add_argument("--direction", type=str, default='z2x',

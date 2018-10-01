@@ -208,7 +208,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init, domain):
             # Loss of eps and flatten latent code from another model
             eps.append(z)
             eps_flatten = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
-            code_loss = 0
+            code_loss = 0.0
         with tf.variable_scope('model', reuse=True):
             if code_flatten != None:
                 if hps.code_loss_type == 'code_all':

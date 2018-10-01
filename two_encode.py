@@ -347,6 +347,8 @@ if __name__ == "__main__":
                         help="l2/l1")
     parser.add_argument("--code_loss_scale", type=float, default=1.0,
                         help="Scalar that is used to time the code_loss")
+    parser.add_argument("--mle_loss_scale", type=float, default=1.0,
+                        help="Scalar that is used to time the bits_x")
 
     # Encode
     parser.add_argument("--model_name", type=str, default='A',
