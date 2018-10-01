@@ -86,8 +86,13 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
     print("After saver")
 
     # === Initialize the parameters
-    if hps.restore_path != '':
-        m.restore(hps.restore_path)
+    if hps.restore_path_A != '' and hps.restore_path_B != '':
+        if domain == 'A':
+            m.restore(hps.restore_path_A)
+        elif domain == 'B':
+            m.restore(hps.restore_path_B)
+        else:
+            raise NotImplementedError()
     else:
         with Z.arg_scope([Z.get_variable_ddi, Z.actnorm], init=True):
             results_init = f_loss(None, False, reuse=True)
