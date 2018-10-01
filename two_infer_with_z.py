@@ -79,10 +79,11 @@ def get_data(hps, sess):
 
     elif hps.problem in ['edges2shoes']:
         hps.direct_iterator = False
+        shuffle_train = not inference
         import data_loaders.get_edges_shoes_joint as v
         train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B = \
             v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
-                       hps.local_batch_test, hps.local_batch_init, hps.image_size)
+                       hps.local_batch_test, hps.local_batch_init, hps.image_size, shuffle_train=shuffle_train)
     else:
         raise Exception()
 

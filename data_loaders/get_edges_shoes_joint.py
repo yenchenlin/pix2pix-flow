@@ -30,7 +30,7 @@ def shard(data, shards, rank):
     return x[ind:ind+size], y[ind:ind+size]
 
 
-def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_batch_test, n_batch_init, resolution, flip_color=False, code_path=None):
+def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_batch_test, n_batch_init, resolution, flip_color=False, code_path=None, shuffle_train=True):
     if problem == 'edges2shoes':
         x_train_A = np.load('/afs/csail.mit.edu/u/y/yenchenlin/Workspace/pix2pix/datasets/edges2shoes_downsample/train/shoes.npy')
         x_train_A = x_train_A[:-1, :, :, :] # To train on multiple GPUs, remove last training examples
@@ -78,12 +78,12 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
     datagen_train.fit(x_train_A, seed=seed)
     datagen_test.fit(x_test_A, seed=seed)
     train_flow_A = datagen_train.flow(x_train_A, y_train_A, n_batch_train, seed=seed)
-    test_flow_A = datagen_test.flow(x_test_A, y_test_A, n_batch_test, shuffle=False, seed=seed)
+    test_flow_A = datagen_test.flow(x_test_A, y_test_A, n_batch_test, shuffle=shuffle_train, seed=seed)
 
     datagen_train.fit(x_train_B, seed=seed)
     datagen_test.fit(x_test_B, seed=seed)
     train_flow_B = datagen_train.flow(x_train_B, y_train_B, n_batch_train, seed=seed)
-    test_flow_B = datagen_test.flow(x_test_B, y_test_B, n_batch_test, shuffle=False, seed=seed)
+    test_flow_B = datagen_test.flow(x_test_B, y_test_B, n_batch_test, shuffle=shuffle_train, seed=seed)
 
     def make_iterator(flow, resolution, code_path=None):
         def iterator():
