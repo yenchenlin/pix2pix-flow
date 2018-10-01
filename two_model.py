@@ -236,25 +236,26 @@ def model(sess, hps, train_iterator, test_iterator, data_init, domain):
                     def unflatten_code(fcode):
                         index = 0
                         code = []
-                        bs = tf.shape(code_flatten)[0]
+                        bs = tf.shape(fcode)[0]
                         # bs = hps.local_batch_train
                         for shape in code_shapes:
                             code.append(tf.reshape(fcode[:, index:index+np.prod(shape)],
                                                    tf.convert_to_tensor([bs] + shape)))
                             index += np.prod(shape)
                         return code
-                    code = unflatten_code(eps_flatten)
-                    # code[-1] is z, and code[:-1] is eps
+                    code_others = unflatten_code(code_flatten)
+                    # code_others[-1] is z, and code_others[:-1] is eps
                     _, sample, _ = prior("prior", y_onehot, hps)
-                    z_code = sample(eps=code[-1])
-                    code_decoded = decoder(z_code, code[:-1])
-                    code_decoded = Z.unsqueeze2d(code_decoded, 2)
-                    # code_decoded = postprocess(code_decoded)
+                    code_last_others = sample(eps=code_others[-1])
+                    code_decoded_others = decoder(code_last_others, code_others[:-1])
+                    code_decoded = Z.unsqueeze2d(code_decoded_others, 2)
+                    code_decoded = postprocess(code_decoded)
 
                     # In order to keep image in [-0.5, 0.5], we don't apply
                     # post process to code_decoded but instead perform preprocess(x)
-                    code_loss = tf.reduce_mean(tf.squared_difference(code_decoded, preprocess(x)))
-                    # code_loss = tf.reduce_mean(tf.squared_difference(tf.cast(code_decoded, tf.float32), tf.cast(x, tf.float32)))
+                    # So the following line makes more sense, but it keeps output errors :(
+                    # code_loss = tf.reduce_mean(tf.squared_difference(code_decoded_others, preprocess(x)))
+                    code_loss = tf.reduce_mean(tf.squared_difference(1/255.0 * tf.cast(code_decoded, tf.float32), 1/255.0 * tf.cast(x, tf.float32)))
                 else:
                     raise NotImplementedError()
 
