@@ -79,7 +79,7 @@ def get_data(hps, sess):
 
     elif hps.problem in ['edges2shoes']:
         hps.direct_iterator = False
-        shuffle_train = not inference
+        shuffle_train = not hps.inference
         import data_loaders.get_edges_shoes_joint as v
         train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B = \
             v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
@@ -159,7 +159,8 @@ def infer(sess, model, hps, iterator):
             xs.append(x)
 
         x = np.concatenate(xs, axis=0)
-        model_name = hps.restore_path.split('/')[-2].split('logs-')[1]
+        restore_path = hps.restore_path_A if hps.model_name == 'A' else hps.restore_path_B
+        model_name = restore_path.split('/')[-2].split('logs-')[1]
         code_name = hps.code_path.split('/')[-2].split('logs-')[1]
         np.save('z2x/{}_{}_{}.npy'.format(model_name, code_name, hps.model_name), x)
 
