@@ -253,8 +253,10 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--verbose", action='store_true', help="Verbose mode")
-    parser.add_argument("--restore_path", type=str, default='',
-                        help="Location of checkpoint to restore")
+    parser.add_argument("--restore_path_A", type=str, default='',
+                        help="Location of checkpoint to restore model A")
+    parser.add_argument("--restore_path_B", type=str, default='',
+                        help="Location of checkpoint to restore model B")
     parser.add_argument("--inference", action="store_true",
                         help="Use in inference mode")
     parser.add_argument("--logdir", type=str,
