@@ -204,13 +204,17 @@ def model(sess, hps, train_iterator, test_iterator, data_init, domain):
 
             # Prior
             hps.top_shape = Z.int_shape(z)[1:]
-            logp, _, _ = prior("prior", y_onehot, hps)
+            logp, _, _eps = prior("prior", y_onehot, hps)
             objective += logp(z)
 
-            # Loss of eps and flatten latent code from another model
+            # Note that we learn the top layer so need to process z
+            z = _eps(z)
             eps.append(z)
+
+            # Loss of eps and flatten latent code from another model
             eps_flatten = tf.concat([tf.contrib.layers.flatten(e) for e in eps], axis=-1)
             code_loss = 0.0
+
         with tf.variable_scope('model', reuse=True):
             if code_flatten != None:
                 if hps.code_loss_type == 'code_all':
