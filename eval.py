@@ -8,14 +8,14 @@ def get_mse(code_A, code_B):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--code_A_path", type=str,
+    parser.add_argument("--A", type=str,
                         help="Path to code A")
-    parser.add_argument("--code_B_path", type=str,
+    parser.add_argument("--B", type=str,
                         help="Path to code B")
     hps = parser.parse_args()
 
-    code_A = np.load(hps.code_A_path)
-    code_B = np.load(hps.code_B_path)
+    code_A = np.load(hps.A)
+    code_B = np.load(hps.B)
 
     code_A_train = code_A.item()['train']
     code_A_test = code_A.item()['test']
