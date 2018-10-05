@@ -162,21 +162,20 @@ def main(hps):
 
     # Create model
     import two_model as model
-    model_A_name = 'A'
-    model_B_name = 'B'
-    with tf.variable_scope(model_A_name):
-        model_A = model.model(sess, hps, train_iterator_A, test_iterator_A, data_init_A, model_A_name)
-    with tf.variable_scope(model_B_name):
-        model_B = model.model(sess, hps, train_iterator_B, test_iterator_B, data_init_B, model_B_name)
-
+    train_iterators = {'A': train_iterator_A, 'B': train_iterator_B}
+    test_iterators = {'A': test_iterator_A, 'B': test_iterator_B}
+    data_inits = {'A': data_init_A, 'B': data_init_B}
+    model = model.model(sess, hps,
+                        train_iterators, test_iterators, data_inits)
     # Initialize visualization functions
-    visualise = init_visualizations(hps, logdir, model_A, model_B, model_A_name, model_B_name)
+    # visualise = init_visualizations(hps, logdir, model_A, model_B, model_A_name, model_B_name)
+    visualise = None
     if not hps.inference:
         # Perform training
-        train(sess, model_A, model_B, hps, logdir, visualise)
+        train(sess, model, hps, logdir, visualise)
 
 
-def train(sess, model_A, model_B, hps, logdir, visualise):
+def train(sess, model, hps, logdir, visualise):
     _print(hps)
     _print('Starting training. Logging to', logdir)
     _print('epoch n_processed n_images ips dtrain dtest dsample dtot train_results test_results msg')
@@ -186,7 +185,7 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
     n_processed = 0
     n_images = 0
     train_time = 0.0
-    test_loss_best = {'A': 999999, 'B': 999999}
+    test_loss_best = 999999
 
     if hvd.rank() == 0:
         train_logger = {'A': ResultLogger(logdir + "train_A.txt", **hps.__dict__),
@@ -206,10 +205,8 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
 
             # Run a training step synchronously.
             _t = time.time()
-            x_A, y_A, code_A = model_A.get_input()
-            x_B, y_B, code_B = model_B.get_input()
-            train_results['A'] += [model_A.train(lr, x_A, y_A, code_B)]
-            train_results['B'] += [model_B.train(lr, x_B, y_B, code_A)]
+            train_results['A'] += [model.train_A(lr)]
+            train_results['B'] += [model.train_B(lr)]
             if hps.verbose and hvd.rank() == 0:
                 _print(n_processed, time.time()-_t, train_results['A'][-1])
                 _print(n_processed, time.time()-_t, train_results['B'][-1])
@@ -230,8 +227,6 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
         if hvd.rank() == 0:
             train_logger['A'].log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
                 train_time), **process_results(train_results['A']))
-            train_logger['B'].log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
-                train_time), **process_results(train_results['B']))
 
         if epoch < 10 or (epoch < 50 and epoch % 10 == 0) or epoch % hps.epochs_full_valid == 0:
             test_results = {'A': [], 'B': []}
@@ -268,7 +263,8 @@ def train(sess, model_A, model_B, hps, logdir, visualise):
             # Sample
             t = time.time()
             if epoch == 1 or epoch == 10 or epoch % hps.epochs_full_sample == 0:
-                visualise(epoch)
+                if visualise != None:
+                    visualise(epoch)
             dsample = time.time() - t
 
             if hvd.rank() == 0:
