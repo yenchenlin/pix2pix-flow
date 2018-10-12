@@ -26,15 +26,18 @@ def _print(*args, **kwargs):
         print(*args, **kwargs)
 
 
-def init_visualizations(hps, logdir, model_A, model_B, model_name_A, model_name_B):
+def init_visualizations(hps, logdir, model):
 
     def sample_batch(y, eps, model):
         n_batch = hps.local_batch_train
-        xs = []
+        xs_A = []
+        xs_B = []
         for i in range(int(np.ceil(len(eps) / n_batch))):
-            xs.append(model.sample(
+            xs_A.append(model.sample_A(
                 y[i*n_batch:i*n_batch + n_batch], eps[i*n_batch:i*n_batch + n_batch]))
-        return np.concatenate(xs)
+            xs_B.append(model.sample_B(
+                y[i*n_batch:i*n_batch + n_batch], eps[i*n_batch:i*n_batch + n_batch]))
+        return np.concatenate(xs_A), np.concatenate(xs_B)
 
     def draw_samples(epoch):
         if hvd.rank() != 0:
@@ -49,17 +52,13 @@ def init_visualizations(hps, logdir, model_A, model_B, model_name_A, model_name_
         # temperatures = [0., .25, .5, .626, .75, .875, 1.] #previously
         temperatures = [0., .25, .5, .6, .7, .8, .9, 1.]
 
-        model = {model_name_A: model_A, model_name_B: model_B}
-        x_samples = {model_name_A: [], model_name_B: []}
-        for model_name in [model_name_A, model_name_B]:
-            x_samples[model_name].append(sample_batch(y, [.0]*n_batch, model[model_name]))
-            x_samples[model_name].append(sample_batch(y, [.25]*n_batch, model[model_name]))
-            x_samples[model_name].append(sample_batch(y, [.5]*n_batch, model[model_name]))
-            x_samples[model_name].append(sample_batch(y, [.6]*n_batch, model[model_name]))
-            x_samples[model_name].append(sample_batch(y, [.7]*n_batch, model[model_name]))
-            x_samples[model_name].append(sample_batch(y, [.8]*n_batch, model[model_name]))
-            x_samples[model_name].append(sample_batch(y, [.9]*n_batch, model[model_name]))
-            x_samples[model_name].append(sample_batch(y, [1.]*n_batch, model[model_name]))
+        x_samples = {'A': [], 'B': []}
+        for model_name in ['A', 'B']:
+            for t in temperatures:
+                xs_A, xs_B = sample_batch(y, [t]*n_batch, model)
+                x_samples['A'].append(xs_A)
+                x_samples['B'].append(xs_B)
+
             # previously: 0, .25, .5, .625, .75, .875, 1.
             for i in range(len(x_samples[model_name])):
                 x_sample = np.reshape(
@@ -168,7 +167,7 @@ def main(hps):
     model = model.model(sess, hps,
                         train_iterators, test_iterators, data_inits)
     # Initialize visualization functions
-    # visualise = init_visualizations(hps, logdir, model_A, model_B, model_A_name, model_B_name)
+    #visualise = init_visualizations(hps, logdir, model)
     visualise = None
     if not hps.inference:
         # Perform training
@@ -205,8 +204,9 @@ def train(sess, model, hps, logdir, visualise):
 
             # Run a training step synchronously.
             _t = time.time()
-            train_results['A'] += [model.train_A(lr)]
-            train_results['B'] += [model.train_B(lr)]
+            x_A, y_A, x_B, y_B = model.get_data()
+            train_results['A'] += [model.train_A(lr, x_A, y_A, x_B, y_B)]
+            train_results['B'] += [model.train_B(lr, x_A, y_A, x_B, y_B)]
             if hps.verbose and hvd.rank() == 0:
                 _print(n_processed, time.time()-_t, train_results['A'][-1])
                 _print(n_processed, time.time()-_t, train_results['B'][-1])

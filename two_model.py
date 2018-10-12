@@ -28,6 +28,14 @@ def abstract_model_xy(sess, hps, feeds, train_iterators, test_iterators, data_in
         loss_train_A, stats_train_A, loss_train_B, stats_train_B = f_loss(train_iterators, is_training=True)
 
     all_params = tf.trainable_variables()
+
+    # Get data op
+    def get_data():
+        x_A, y_A = train_iterators['A']()
+        x_B, y_B = train_iterators['B']()
+        return x_A, y_A, x_B, y_B
+    m.get_data = get_data
+
     # A
     with tf.variable_scope('optim_A'):
         params_A = [param for param in all_params if 'A/' in param.name]
@@ -42,10 +50,11 @@ def abstract_model_xy(sess, hps, feeds, train_iterators, test_iterators, data_in
         if hps.direct_iterator:
             m.train_A = lambda _lr: sess.run([train_op_A, stats_train_A], {lr: _lr})[1]
         else:
-            def _train_A(_lr):
-                _x_A, _y_A = train_iterators['A']()
+            def _train_A(_lr, _x_A, _y_A, _x_B, _y_B):
                 return sess.run([train_op_A, stats_train_A], {feeds['x_A']: _x_A,
                                                               feeds['y_A']: _y_A,
+                                                              feeds['x_B']: _x_B,
+                                                              feeds['y_B']: _y_B,
                                                               lr: _lr})[1]
             m.train_A = _train_A
         m.polyak_swap_A = lambda: sess.run(polyak_swap_op_A)
@@ -63,9 +72,10 @@ def abstract_model_xy(sess, hps, feeds, train_iterators, test_iterators, data_in
         if hps.direct_iterator:
             m.train_B = lambda _lr: sess.run([train_op_B, stats_train_B], {lr: _lr})[1]
         else:
-            def _train_B(_lr):
-                _x_B, _y_B = train_iterators['B']()
-                return sess.run([train_op_B, stats_train_B], {feeds['x_B']: _x_B,
+            def _train_B(_lr, _x_A, _y_A, _x_B, _y_B):
+                return sess.run([train_op_B, stats_train_B], {feeds['x_A']: _x_A,
+                                                              feeds['y_A']: _y_A,
+                                                              feeds['x_B']: _x_B,
                                                               feeds['y_B']: _y_B,
                                                               lr: _lr})[1]
             m.train_B = _train_B
@@ -195,12 +205,12 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
     with tf.name_scope('input'):
         # Input A
         X_A = tf.placeholder(
-            tf.uint8, [None, hps.image_size, hps.image_size, 3], name='image')
-        Y_A = tf.placeholder(tf.int32, [None], name='label')
+            tf.uint8, [None, hps.image_size, hps.image_size, 3], name='image_A')
+        Y_A = tf.placeholder(tf.int32, [None], name='label_A')
         # Input B
         X_B = tf.placeholder(
-            tf.uint8, [None, hps.image_size, hps.image_size, 3], name='image')
-        Y_B = tf.placeholder(tf.int32, [None], name='label')
+            tf.uint8, [None, hps.image_size, hps.image_size, 3], name='image_B')
+        Y_B = tf.placeholder(tf.int32, [None], name='label_B')
         # learning rate
         lr = tf.placeholder(tf.float32, None, name='learning_rate')
 
@@ -273,7 +283,28 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
             eps_flatten_B = tf.concat([tf.contrib.layers.flatten(e) for e in eps_B], axis=-1)
             code_loss = 0.0
 
-        # with tf.variable_scope('model_A', reuse=True):
+        with tf.variable_scope('model_A', reuse=True):
+            # Decode the code from another model and compute L2 loss
+            # at pixel level
+            code_shapes = [[16, 16, 6], [8, 8, 12], [4, 4, 48]]
+            def unflatten_code(fcode):
+                index = 0
+                code = []
+                bs = tf.shape(fcode)[0]
+                # bs = hps.local_batch_train
+                for shape in code_shapes:
+                    code.append(tf.reshape(fcode[:, index:index+np.prod(shape)],
+                                           tf.convert_to_tensor([bs] + shape)))
+                    index += np.prod(shape)
+                return code
+            code_others = unflatten_code(eps_flatten_B)
+            # code_others[-1] is z, and code_others[:-1] is eps
+            _, sample, _ = prior("prior", y_onehot_A, hps)
+            code_last_others = sample(eps=code_others[-1])
+            code_decoded_others = decoder_A(code_last_others, code_others[:-1])
+            code_decoded = Z.unsqueeze2d(code_decoded_others, 2)
+            code_decoded = postprocess(code_decoded)
+            code_loss_A = tf.reduce_mean(tf.squared_difference(tf.cast(code_decoded, tf.float32), tf.cast(x_A, tf.float32)))
             # if False
             #     if hps.code_loss_type == 'code_all':
             #         if hps.code_loss_fn == 'l2':
@@ -339,7 +370,7 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
             classification_error_B = tf.ones_like(bits_x_B)
 
         classification_error = 0
-        return bits_x_A, bits_y_A, classification_error_A, eps_flatten_A, bits_x_B, bits_y_B, classification_error_B, eps_flatten_B
+        return bits_x_A, bits_y_A, classification_error_A, eps_flatten_A, code_loss_A, bits_x_B, bits_y_B, classification_error_B, eps_flatten_B
 
     def f_loss(iterators, is_training, reuse=False):
         if hps.direct_iterator and iterators is not None:
@@ -347,15 +378,15 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
         else:
             x_A, y_A, x_B, y_B = X_A, Y_A, X_B, Y_B
 
-        bits_x_A, bits_y_A, pred_loss_A, eps_flatten_A, bits_x_B, bits_y_B, pred_loss_B, eps_flatten_B = _f_loss(x_A, y_A, x_B, y_B, is_training, reuse)
+        bits_x_A, bits_y_A, pred_loss_A, eps_flatten_A, code_loss_A, bits_x_B, bits_y_B, pred_loss_B, eps_flatten_B = _f_loss(x_A, y_A, x_B, y_B, is_training, reuse)
         local_loss_A = hps.mle_loss_scale * bits_x_A + hps.weight_y * bits_y_A
         local_loss_B = hps.mle_loss_scale * bits_x_B + hps.weight_y * bits_y_B
         # Add code difference loss
         # if hps.joint_train:
         #     local_loss += hps.code_loss_scale * code_loss
-        code_loss = 0.0
-        stats_A = [local_loss_A, bits_x_A, bits_y_A, pred_loss_A, code_loss]
-        stats_B = [local_loss_B, bits_x_B, bits_y_B, pred_loss_B, code_loss]
+        code_loss_B = 0.0
+        stats_A = [local_loss_A, bits_x_A, bits_y_A, pred_loss_A, code_loss_A]
+        stats_B = [local_loss_B, bits_x_B, bits_y_B, pred_loss_B, code_loss_B]
         global_stats_A = Z.allreduce_mean(
             tf.stack([tf.reduce_mean(i) for i in stats_A]))
         global_stats_B = Z.allreduce_mean(

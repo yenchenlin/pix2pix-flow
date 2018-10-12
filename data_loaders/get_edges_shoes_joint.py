@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 
 def downsample(x, resolution):
@@ -30,15 +31,26 @@ def shard(data, shards, rank):
     return x[ind:ind+size], y[ind:ind+size]
 
 
-def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_batch_test, n_batch_init, resolution, flip_color=False, code_path=None, shuffle_train=True):
-    if problem == 'edges2shoes':
-        x_train_A = np.load('/afs/csail.mit.edu/u/y/yenchenlin/Workspace/pix2pix/datasets/edges2shoes_downsample/train/shoes.npy')
-        x_train_A = x_train_A[:-1, :, :, :] # To train on multiple GPUs, remove last training examples
-        x_test_A = np.load('/afs/csail.mit.edu/u/y/yenchenlin/Workspace/pix2pix/datasets/edges2shoes_downsample/val/shoes.npy')
+def get_data(problem, shards, rank, data_augmentation_level, n_batch_train,
+             n_batch_test, n_batch_init, resolution, flip_color=False,
+             code_path=None, shuffle_train=True):
+    if problem == 'edges2shoes' or problem == 'facades':
+        DIR = '/afs/csail.mit.edu/u/y/yenchenlin/Workspace/pix2pix/datasets/'
+        x_train_A = np.load(
+            os.path.join(DIR, '{}_32/train/A.npy'.format(problem)))
+        x_test_A = np.load(
+            os.path.join(DIR, '{}_32/val/A.npy'.format(problem)))
 
-        x_train_B = np.load('/afs/csail.mit.edu/u/y/yenchenlin/Workspace/pix2pix/datasets/edges2shoes_downsample/train/edges.npy')
-        x_train_B = x_train_B[:-1, :, :, :] # To train on multiple GPUs, remove last training examples
-        x_test_B = np.load('/afs/csail.mit.edu/u/y/yenchenlin/Workspace/pix2pix/datasets/edges2shoes_downsample/val/edges.npy')
+        x_train_B = np.load(
+            os.path.join(DIR, '{}_32/train/B.npy'.format(problem)))
+        x_test_B = np.load(
+            os.path.join(DIR, '{}_32/val/B.npy'.format(problem)))
+
+        # Discard last example if dataset size is not even for
+        # distributed training
+        if x_train_A.shape[0] % 2 != 0:
+            x_train_A = x_train_A[:-1, :, :, :]
+            x_train_B = x_train_B[:-1, :, :, :]
 
         y_train = np.zeros((x_train_A.shape[0]))
         y_test = np.zeros((x_test_A.shape[0]))
@@ -67,6 +79,11 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train, n_ba
         datagen_train = ImageDataGenerator()
     else:
         if problem == 'edges2shoes':
+            datagen_train = ImageDataGenerator(
+                width_shift_range=0.1,
+                height_shift_range=0.1
+            )
+        elif problem == 'facades':
             datagen_train = ImageDataGenerator(
                 width_shift_range=0.1,
                 height_shift_range=0.1
