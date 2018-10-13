@@ -29,12 +29,12 @@ def abstract_model_xy(sess, hps, feeds, train_iterators, test_iterators, data_in
 
     all_params = tf.trainable_variables()
 
-    # Get data op
-    def get_data():
+    # Get train data op
+    def get_train_data():
         x_A, y_A = train_iterators['A']()
         x_B, y_B = train_iterators['B']()
         return x_A, y_A, x_B, y_B
-    m.get_data = get_data
+    m.get_train_data = get_train_data
 
     # A
     with tf.variable_scope('optim_A'):
@@ -87,14 +87,23 @@ def abstract_model_xy(sess, hps, feeds, train_iterators, test_iterators, data_in
         m.test_A = lambda: sess.run(stats_test_A)
         m.test_B = lambda: sess.run(stats_test_B)
     else:
-        def _test_A():
-            _x_A, _y_A = test_iterators['A']()
-            return sess.run(stats_test_A, {feeds['x']: _x_A,
-                                           feeds['y']: _y_A})
-        def _test_B():
-            _x_B, _y_B = test_iterators['B']()
-            return sess.run(stats_test_B, {feeds['x']: _x_B,
-                                           feeds['y']: _y_B})
+        # Get test data op
+        def get_test_data():
+            x_A, y_A = test_iterators['A']()
+            x_B, y_B = test_iterators['B']()
+            return x_A, y_A, x_B, y_B
+        m.get_test_data = get_test_data
+
+        def _test_A(_x_A, _y_A, _x_B, _y_B):
+            return sess.run(stats_test_A, {feeds['x_A']: _x_A,
+                                           feeds['y_A']: _y_A,
+                                           feeds['x_B']: _x_B,
+                                           feeds['y_B']: _y_B})
+        def _test_B(_x_A, _y_A, _x_B, _y_B):
+            return sess.run(stats_test_B, {feeds['x_A']: _x_A,
+                                           feeds['y_A']: _y_A,
+                                           feeds['x_B']: _x_B,
+                                           feeds['y_B']: _y_B})
         m.test_A = _test_A
         m.test_B = _test_B
 
@@ -104,16 +113,16 @@ def abstract_model_xy(sess, hps, feeds, train_iterators, test_iterators, data_in
         saver_ema_A = tf.train.Saver(ema_A.variables_to_restore())
         m.save_ema_A = lambda path_A: saver_ema_A.save(
             sess, path_A, write_meta_graph=False)
-        m.save_A = lambda path_A: saver.save(sess, path_A, write_meta_graph=False)
-        m.restore_A = lambda path_A: saver.restore(sess, path_A)
+        m.save_A = lambda path_A: saver_A.save(sess, path_A, write_meta_graph=False)
+        m.restore_A = lambda path_A: saver_A.restore(sess, path_A)
 
     with tf.variable_scope('saver_B'):
         saver_B = tf.train.Saver()
         saver_ema_B = tf.train.Saver(ema_B.variables_to_restore())
         m.save_ema_B = lambda path_B: saver_ema_B.save(
             sess, path_B, write_meta_graph=False)
-        m.save_B = lambda path_B: saver.save(sess, path_B, write_meta_graph=False)
-        m.restore_B = lambda path_B: saver.restore(sess, path_B)
+        m.save_B = lambda path_B: saver_B.save(sess, path_B, write_meta_graph=False)
+        m.restore_B = lambda path_B: saver_B.restore(sess, path_B)
         print("After saver")
 
     # === Initialize the parameters
@@ -364,105 +373,124 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
                           test_iterators, data_inits, lr, f_loss)
 
     # # === Sampling function
-    # def f_sample(y, eps_std):
-    #     with tf.variable_scope('model_A', reuse=True):
-    #         y_onehot_A = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
+    def f_sample(y_A, y_B, eps_std):
+        with tf.variable_scope('model_A', reuse=True):
+            y_onehot_A = tf.cast(tf.one_hot(y_A, hps.n_y, 1, 0), 'float32')
 
-    #         _, sample, _ = prior("prior", y_onehot_A, hps)
-    #         z = sample(eps_std=eps_std)
-    #         z = decoder_A(z, eps_std=eps_std)
-    #         z = Z.unsqueeze2d(z, 2)  # 8x8x12 -> 16x16x3
-    #         x_A = postprocess(z)
+            _, sample, _ = prior("prior", y_onehot_A, hps)
+            z = sample(eps_std=eps_std)
+            z = decoder_A(z, eps_std=eps_std)
+            z = Z.unsqueeze2d(z, 2)  # 8x8x12 -> 16x16x3
+            x_A = postprocess(z)
 
-    #     with tf.variable_scope('model_B', reuse=True):
-    #         y_onehot_B = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
+        with tf.variable_scope('model_B', reuse=True):
+            y_onehot_B = tf.cast(tf.one_hot(y_B, hps.n_y, 1, 0), 'float32')
 
-    #         _, sample, _ = prior("prior", y_onehot_B, hps)
-    #         z = sample(eps_std=eps_std)
-    #         z = decoder_B(z, eps_std=eps_std)
-    #         z = Z.unsqueeze2d(z, 2)  # 8x8x12 -> 16x16x3
-    #         x_B = postprocess(z)
-    #     return x_A, x_B
+            _, sample, _ = prior("prior", y_onehot_B, hps)
+            z = sample(eps_std=eps_std)
+            z = decoder_B(z, eps_std=eps_std)
+            z = Z.unsqueeze2d(z, 2)  # 8x8x12 -> 16x16x3
+            x_B = postprocess(z)
+        return x_A, x_B
 
-    # m.eps_std = tf.placeholder(tf.float32, [None], name='eps_std')
-    # x_sampled = f_sample(Y, m.eps_std)
+    m.eps_std = tf.placeholder(tf.float32, [None], name='eps_std')
+    x_A_sampled, x_B_sampled = f_sample(Y_A, Y_B, m.eps_std)
 
-    # def sample(_y, _eps_std):
-    #     return m.sess.run(x_sampled, {Y: _y, m.eps_std: _eps_std})
-    # m.sample = sample
+    def sample_A(_y, _eps_std):
+        return m.sess.run(x_A_sampled, {Y_A: _y, m.eps_std: _eps_std})
+    def sample_B(_y, _eps_std):
+        return m.sess.run(x_B_sampled, {Y_B: _y, m.eps_std: _eps_std})
+    m.sample_A = sample_A
+    m.sample_B = sample_B
 
-    # if hps.inference:
-    #     # === Encoder-Decoder functions
-    #     def f_encode(x, y, reuse=True):
-    #         with tf.variable_scope('model', reuse=reuse):
-    #             y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
+    if hps.inference:
+        # === Encoder-Decoder functions
+        def f_encode(x, y, model_name, reuse=True):
+            assert model_name == 'model_A' or model_name == 'model_B'
+            encoder = encoder_A if model_name == 'model_A' else encoder_B
+            with tf.variable_scope(model_name, reuse=reuse):
+                y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
 
-    #             # Discrete -> Continuous
-    #             objective = tf.zeros_like(x, dtype='float32')[:, 0, 0, 0]
-    #             z = preprocess(x)
-    #             z = z + tf.random_uniform(tf.shape(z), 0, 1. / hps.n_bins)
-    #             objective += - np.log(hps.n_bins) * np.prod(Z.int_shape(z)[1:])
+                # Discrete -> Continuous
+                objective = tf.zeros_like(x, dtype='float32')[:, 0, 0, 0]
+                z = preprocess(x)
+                z = z + tf.random_uniform(tf.shape(z), 0, 1. / hps.n_bins)
+                objective += - np.log(hps.n_bins) * np.prod(Z.int_shape(z)[1:])
 
-    #             # Encode
-    #             z = Z.squeeze2d(z, 2)  # > 16x16x12
-    #             z, objective, eps = encoder(z, objective)
+                # Encode
+                z = Z.squeeze2d(z, 2)  # > 16x16x12
+                z, objective, eps = encoder(z, objective)
 
-    #             # Prior
-    #             hps.top_shape = Z.int_shape(z)[1:]
-    #             logp, _, _eps = prior("prior", y_onehot, hps)
-    #             objective += logp(z)
-    #             eps.append(_eps(z))
+                # Prior
+                hps.top_shape = Z.int_shape(z)[1:]
+                logp, _, _eps = prior("prior", y_onehot, hps)
+                objective += logp(z)
+                eps.append(_eps(z))
 
-    #         return eps
+            return eps
 
-    #     def f_decode(y, eps, reuse=True):
-    #         with tf.variable_scope('model', reuse=reuse):
-    #             y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
+        def f_decode(y, eps, model_name, reuse=True):
+            assert model_name == 'model_A' or model_name == 'model_B'
+            decoder = decoder_A if model_name == 'model_A' else decoder_B
+            with tf.variable_scope(model_name, reuse=reuse):
+                y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
 
-    #             _, sample, _ = prior("prior", y_onehot, hps)
-    #             z = sample(eps=eps[-1])
-    #             z = decoder(z, eps=eps[:-1])
-    #             z = Z.unsqueeze2d(z, 2)  # 8x8x12 -> 16x16x3
-    #             x = postprocess(z)
+                _, sample, _ = prior("prior", y_onehot, hps)
+                z = sample(eps=eps[-1])
+                z = decoder(z, eps=eps[:-1])
+                z = Z.unsqueeze2d(z, 2)  # 8x8x12 -> 16x16x3
+                x = postprocess(z)
 
-    #         return x
+            return x
 
-    #     enc_eps = f_encode(X, Y)
-    #     dec_eps = []
-    #     print(enc_eps)
-    #     for i, _eps in enumerate(enc_eps):
-    #         print(_eps)
-    #         dec_eps.append(tf.placeholder(tf.float32, _eps.get_shape().as_list(), name="dec_eps_" + str(i)))
-    #     dec_x = f_decode(Y, dec_eps)
+        enc_eps_A, enc_eps_B = f_encode(X, Y, 'model_A'), f_encode(X, Y, 'model_B')
+        dec_eps_A, dec_eps_B = [], []
+        for enc_eps, dec_eps in zip([enc_eps_A, enc_eps_B], [dec_eps_A, dec_eps_B]):
+            for i, _eps in enumerate(enc_eps):
+                dec_eps.append(tf.placeholder(tf.float32, _eps.get_shape().as_list(), name="dec_eps_" + str(i)))
+        dec_x_A = f_decode(Y, dec_eps_A, 'model_A')
+        dec_x_B = f_decode(Y, dec_eps_B, 'model_B')
 
-    #     eps_shapes = [_eps.get_shape().as_list()[1:] for _eps in enc_eps]
+        eps_shapes = [_eps.get_shape().as_list()[1:] for _eps in enc_eps_A]
 
-    #     def flatten_eps(eps):
-    #         # [BS, eps_size]
-    #         return np.concatenate([np.reshape(e, (e.shape[0], -1)) for e in eps], axis=-1)
+        def flatten_eps(eps):
+            # [BS, eps_size]
+            return np.concatenate([np.reshape(e, (e.shape[0], -1)) for e in eps], axis=-1)
 
-    #     def unflatten_eps(feps):
-    #         index = 0
-    #         eps = []
-    #         bs = feps.shape[0]
-    #         for shape in eps_shapes:
-    #             eps.append(np.reshape(feps[:, index: index+np.prod(shape)], (bs, *shape)))
-    #             index += np.prod(shape)
-    #         return eps
+        def unflatten_eps(feps):
+            index = 0
+            eps = []
+            bs = feps.shape[0]
+            for shape in eps_shapes:
+                eps.append(np.reshape(feps[:, index: index+np.prod(shape)], (bs, *shape)))
+                index += np.prod(shape)
+            return eps
 
-    #     # If model is uncondtional, always pass y = np.zeros([bs], dtype=np.int32)
-    #     def encode(x, y):
-    #         return flatten_eps(sess.run(enc_eps, {X: x, Y: y}))
+        # If model is uncondtional, always pass y = np.zeros([bs], dtype=np.int32)
+        def encode(x, y, model_name):
+            assert model_name == 'model_A' or model_name == 'model_B'
+            if model_name == 'model_A':
+                return flatten_eps(sess.run(enc_eps_A, {X_A: x, Y_A: y}))
+            elif model_name == 'model_B':
+                return flatten_eps(sess.run(enc_eps_B, {X_B: x, Y_B: y}))
 
-    #     def decode(y, feps):
-    #         eps = unflatten_eps(feps)
-    #         feed_dict = {Y: y}
-    #         for i in range(len(dec_eps)):
-    #             feed_dict[dec_eps[i]] = eps[i]
-    #         return sess.run(dec_x, feed_dict)
+        def decode(y, feps, model_name):
+            assert model_name == 'model_A' or model_name == 'model_B'
+            if model_name == 'model_A':
+                eps_A = unflatten_eps(feps)
+                feed_dict = {Y_A: y}
+                for i in range(len(dec_eps_A)):
+                    feed_dict[dec_eps_A[i]] = eps_A[i]
+                return sess.run(dec_x_A, feed_dict)
+            elif model_name == 'model_B':
+                eps_B = unflatten_eps(feps)
+                feed_dict = {Y_B: y}
+                for i in range(len(dec_eps_B)):
+                    feed_dict[dec_eps_B[i]] = eps_B[i]
+                return sess.run(dec_x_B, feed_dict)
 
-    #     m.encode = encode
-    #     m.decode = decode
+        m.encode = encode
+        m.decode = decode
 
     return m
 
