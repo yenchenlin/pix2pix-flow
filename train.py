@@ -12,12 +12,13 @@ import tensorflow as tf
 import graphics
 from utils import ResultLogger
 
-from tqdm import tqdm
-
 learn = tf.contrib.learn
 
 # Surpress verbose warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+
+DEBUG = True
 
 
 def _print(*args, **kwargs):
@@ -25,15 +26,18 @@ def _print(*args, **kwargs):
         print(*args, **kwargs)
 
 
-def init_visualizations(hps, model, logdir):
+def init_visualizations(hps, logdir, model):
 
-    def sample_batch(y, eps):
+    def sample_batch(y, eps, model):
         n_batch = hps.local_batch_train
-        xs = []
+        xs_A = []
+        xs_B = []
         for i in range(int(np.ceil(len(eps) / n_batch))):
-            xs.append(model.sample(
+            xs_A.append(model.sample_A(
                 y[i*n_batch:i*n_batch + n_batch], eps[i*n_batch:i*n_batch + n_batch]))
-        return np.concatenate(xs)
+            xs_B.append(model.sample_B(
+                y[i*n_batch:i*n_batch + n_batch], eps[i*n_batch:i*n_batch + n_batch]))
+        return np.concatenate(xs_A), np.concatenate(xs_B)
 
     def draw_samples(epoch):
         if hvd.rank() != 0:
@@ -48,22 +52,19 @@ def init_visualizations(hps, model, logdir):
         # temperatures = [0., .25, .5, .626, .75, .875, 1.] #previously
         temperatures = [0., .25, .5, .6, .7, .8, .9, 1.]
 
-        x_samples = []
-        x_samples.append(sample_batch(y, [.0]*n_batch))
-        x_samples.append(sample_batch(y, [.25]*n_batch))
-        x_samples.append(sample_batch(y, [.5]*n_batch))
-        x_samples.append(sample_batch(y, [.6]*n_batch))
-        x_samples.append(sample_batch(y, [.7]*n_batch))
-        x_samples.append(sample_batch(y, [.8]*n_batch))
-        x_samples.append(sample_batch(y, [.9] * n_batch))
-        x_samples.append(sample_batch(y, [1.]*n_batch))
-        # previously: 0, .25, .5, .625, .75, .875, 1.
+        x_samples = {'A': [], 'B': []}
+        for model_name in ['A', 'B']:
+            for t in temperatures:
+                xs_A, xs_B = sample_batch(y, [t]*n_batch, model)
+                x_samples['A'].append(xs_A)
+                x_samples['B'].append(xs_B)
 
-        for i in range(len(x_samples)):
-            x_sample = np.reshape(
-                x_samples[i], (n_batch, hps.image_size, hps.image_size, 3))
-            graphics.save_raster(x_sample, logdir +
-                                 'epoch_{}_sample_{}.png'.format(epoch, i))
+            # previously: 0, .25, .5, .625, .75, .875, 1.
+            for i in range(len(x_samples[model_name])):
+                x_sample = np.reshape(
+                    x_samples[model_name][i], (n_batch, hps.image_size, hps.image_size, 3))
+                graphics.save_raster(x_sample, logdir +
+                                     '{}_epoch_{}_sample_{}.png'.format(model_name, epoch, i))
 
     return draw_samples
 
@@ -72,15 +73,15 @@ def init_visualizations(hps, model, logdir):
 # ===
 def get_data(hps, sess):
     if hps.image_size == -1:
-        hps.image_size = {'edges': 32, 'shoes': 32, 'mnist': 32, 'cifar10': 32, 'imagenet-oord': 64,
+        hps.image_size = {'edges2shoes': 32, 'mnist': 32, 'cifar10': 32, 'imagenet-oord': 64,
                           'imagenet': 256, 'celeba': 256, 'lsun_realnvp': 64, 'lsun': 256}[hps.problem]
     if hps.n_test == -1:
-        hps.n_test = {'edges': 200, 'shoes': 200, 'mnist': 10000, 'cifar10': 10000, 'imagenet-oord': 50000, 'imagenet': 50000,
+        hps.n_test = {'edges2shoes': 200, 'mnist': 10000, 'cifar10': 10000, 'imagenet-oord': 50000, 'imagenet': 50000,
                       'celeba': 3000, 'lsun_realnvp': 300*hvd.size(), 'lsun': 300*hvd.size()}[hps.problem]
-    hps.n_y = {'edges': 10, 'shoes': 10, 'mnist': 10, 'cifar10': 10, 'imagenet-oord': 1000,
+    hps.n_y = {'edges2shoes': 10, 'mnist': 10, 'cifar10': 10, 'imagenet-oord': 1000,
                'imagenet': 1000, 'celeba': 1, 'lsun_realnvp': 1, 'lsun': 1}[hps.problem]
     if hps.data_dir == "":
-        hps.data_dir = {'edges': None, 'shoes': None, 'mnist': None, 'cifar10': None, 'imagenet-oord': '/mnt/host/imagenet-oord-tfr', 'imagenet': '/mnt/host/imagenet-tfr',
+        hps.data_dir = {'edges2shoes': None, 'mnist': None, 'cifar10': None, 'imagenet-oord': '/mnt/host/imagenet-oord-tfr', 'imagenet': '/mnt/host/imagenet-tfr',
                         'celeba': '/mnt/host/celeba-reshard-tfr', 'lsun_realnvp': '/mnt/host/lsun_realnvp', 'lsun': '/mnt/host/lsun'}[hps.problem]
 
     if hps.problem == 'lsun_realnvp':
@@ -112,27 +113,24 @@ def get_data(hps, sess):
 
     elif hps.problem in ['mnist', 'cifar10']:
         hps.direct_iterator = False
-        import data_loaders.get_mnist_cifar as v
-        train_iterator, test_iterator, data_init = \
+        import data_loaders.get_mnist_cifar_joint as v
+        train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B = \
             v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
-                       hps.local_batch_test, hps.local_batch_init, hps.image_size, flip_color=hps.flip_color,
-                       code_path=hps.code_path)
-    elif hps.problem in ['shoes', 'edges']:
+                       hps.local_batch_test, hps.local_batch_init, hps.image_size)
+    elif hps.problem in ['edges2shoes']:
         hps.direct_iterator = False
-        import data_loaders.get_edges_shoes as v
-        train_iterator, test_iterator, data_init = \
+        import data_loaders.get_edges_shoes_joint as v
+        train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B = \
             v.get_data(hps.problem, hvd.size(), hvd.rank(), hps.dal, hps.local_batch_train,
-                       hps.local_batch_test, hps.local_batch_init, hps.image_size, flip_color=hps.flip_color,
-                       code_path=hps.code_path)
-
+                       hps.local_batch_test, hps.local_batch_init, hps.image_size)
     else:
         raise Exception()
 
-    return train_iterator, test_iterator, data_init
+    return train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B
 
 
 def process_results(results):
-    stats = ['loss', 'bits_x', 'bits_y', 'pred_loss']
+    stats = ['loss', 'bits_x', 'bits_y', 'pred_loss', 'code_loss']
     assert len(stats) == results.shape[0]
     res_dict = {}
     for i in range(len(stats)):
@@ -153,7 +151,7 @@ def main(hps):
     np.random.seed(hvd.rank() + hvd.size() * hps.seed)
 
     # Get data and set train_its and valid_its
-    train_iterator, test_iterator, data_init = get_data(hps, sess)
+    train_iterator_A, test_iterator_A, data_init_A, train_iterator_B, test_iterator_B, data_init_B = get_data(hps, sess)
     hps.train_its, hps.test_its, hps.full_test_its = get_its(hps)
 
     # Create log dir
@@ -163,49 +161,18 @@ def main(hps):
 
     # Create model
     import model
-    model = model.model(sess, hps, train_iterator, test_iterator, data_init)
-
+    train_iterators = {'A': train_iterator_A, 'B': train_iterator_B}
+    test_iterators = {'A': test_iterator_A, 'B': test_iterator_B}
+    data_inits = {'A': data_init_A, 'B': data_init_B}
+    model = model.model(sess, hps,
+                        train_iterators, test_iterators, data_inits)
     # Initialize visualization functions
-    visualise = init_visualizations(hps, model, logdir)
+    visualise = init_visualizations(hps, logdir, model)
     if not hps.inference:
-        # Perform training
         train(sess, model, hps, logdir, visualise)
     else:
-        x_train, z_train = infer(sess, model, hps, train_iterator, hps.train_its)
-        x_test, z_test = infer(sess, model, hps, test_iterator, hps.full_test_its)
-        x = {'train': x_train, 'test': x_test}
-        z = {'train': z_train, 'test': z_test}
-        np.save('{}/x.npy'.format(hps.logdir), x)
-        np.save('{}/z.npy'.format(hps.logdir), z)
-
-
-def infer(sess, model, hps, iterator, its):
-    # Example of using model in inference mode. Load saved model using hps.restore_path
-    # Can provide x, y from files instead of dataset iterator
-    # If model is uncondtional, always pass y = np.zeros([bs], dtype=np.int32)
-    if hps.direct_iterator:
-        iterator = iterator.get_next()
-
-    xs = []
-    zs = []
-    for it in tqdm(range(its)):
-        if hps.direct_iterator:
-            # replace with x, y, attr if you're getting CelebA attributes, also modify get_data
-            x, y = sess.run(iterator)
-        else:
-            x, y = iterator()
-
-        z = model.encode(x, y)
-        x = model.decode(y, z)
-        xs.append(x)
-        zs.append(z)
-
-    x = np.concatenate(xs, axis=0)
-    z = np.concatenate(zs, axis=0)
-
-    #np.save('{}/x_{}.npy'.format(hps.logdir, name), x)
-    #np.save('{}/z_{}.npy'.format(hps.logdir, name), z)
-    return x, z
+        iterators = {'A': test_iterator_A, 'B': test_iterator_B}
+        infer(sess, model, hps, iterators, hps.full_test_its)
 
 
 def train(sess, model, hps, logdir, visualise):
@@ -218,18 +185,18 @@ def train(sess, model, hps, logdir, visualise):
     n_processed = 0
     n_images = 0
     train_time = 0.0
-    test_loss_best = 999999
+    test_loss_best = {'A': 999999, 'B': 999999}
 
     if hvd.rank() == 0:
-        train_logger = ResultLogger(logdir + "train.txt", **hps.__dict__)
-        test_logger = ResultLogger(logdir + "test.txt", **hps.__dict__)
+        train_logger = {'A': ResultLogger(logdir + "train_A.txt", **hps.__dict__),
+                        'B': ResultLogger(logdir + "train_B.txt", **hps.__dict__)}
+        test_logger = {'A': ResultLogger(logdir + "test_A.txt", **hps.__dict__),
+                       'B': ResultLogger(logdir + "test_B.txt", **hps.__dict__)}
 
     tcurr = time.time()
     for epoch in range(1, hps.epochs):
-
         t = time.time()
-
-        train_results = []
+        train_results = {'A': [], 'B': []}
         for it in range(hps.train_its):
 
             # Set learning rate, linearly annealed from 0 in the first hps.epochs_warmup epochs.
@@ -238,9 +205,12 @@ def train(sess, model, hps, logdir, visualise):
 
             # Run a training step synchronously.
             _t = time.time()
-            train_results += [model.train(lr)]
+            x_A, y_A, x_B, y_B = model.get_train_data()
+            train_results['A'] += [model.train_A(lr, x_A, y_A, x_B, y_B)]
+            train_results['B'] += [model.train_B(lr, x_A, y_A, x_B, y_B)]
             if hps.verbose and hvd.rank() == 0:
-                _print(n_processed, time.time()-_t, train_results[-1])
+                _print(n_processed, time.time()-_t, train_results['A'][-1])
+                _print(n_processed, time.time()-_t, train_results['B'][-1])
                 sys.stdout.flush()
 
             # Images seen wrt anchor resolution
@@ -248,19 +218,22 @@ def train(sess, model, hps, logdir, visualise):
             # Actual images seen at current resolution
             n_images += hvd.size() * hps.local_batch_train
 
-        train_results = np.mean(np.asarray(train_results), axis=0)
+        train_results['A'] = np.mean(np.asarray(train_results['A']), axis=0)
+        train_results['B'] = np.mean(np.asarray(train_results['B']), axis=0)
 
         dtrain = time.time() - t
         ips = (hps.train_its * hvd.size() * hps.local_batch_train) / dtrain
         train_time += dtrain
 
         if hvd.rank() == 0:
-            train_logger.log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
-                train_time), **process_results(train_results))
+            train_logger['A'].log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
+                train_time), **process_results(train_results['A']))
+            train_logger['B'].log(epoch=epoch, n_processed=n_processed, n_images=n_images, train_time=int(
+                train_time), **process_results(train_results['B']))
 
         if epoch < 10 or (epoch < 50 and epoch % 10 == 0) or epoch % hps.epochs_full_valid == 0:
-            test_results = []
-            msg = ''
+            test_results = {'A': [], 'B': []}
+            msg = {'A': 'A', 'B': 'B'}
 
             t = time.time()
             # model.polyak_swap()
@@ -268,18 +241,26 @@ def train(sess, model, hps, logdir, visualise):
             if epoch % hps.epochs_full_valid == 0:
                 # Full validation run
                 for it in range(hps.full_test_its):
-                    test_results += [model.test()]
-                test_results = np.mean(np.asarray(test_results), axis=0)
+                    x_A, y_A, x_B, y_B = model.get_test_data()
+                    test_results['A'] += [model.test_A(x_A, y_A, x_B, y_B)]
+                    test_results['B'] += [model.test_B(x_A, y_A, x_B, y_B)]
+                test_results['A'] = np.mean(np.asarray(test_results['A']), axis=0)
+                test_results['B'] = np.mean(np.asarray(test_results['B']), axis=0)
 
                 if hvd.rank() == 0:
-                    test_logger.log(epoch=epoch, n_processed=n_processed,
-                                    n_images=n_images, **process_results(test_results))
-
+                    test_logger['A'].log(epoch=epoch, n_processed=n_processed,
+                                         n_images=n_images, **process_results(test_results['A']))
+                    test_logger['B'].log(epoch=epoch, n_processed=n_processed,
+                                         n_images=n_images, **process_results(test_results['B']))
                     # Save checkpoint
-                    if test_results[0] < test_loss_best:
-                        test_loss_best = test_results[0]
-                        model.save(logdir+"model_best_loss.ckpt")
-                        msg += ' *'
+                    if test_results['A'][0] < test_loss_best['A']:
+                        test_loss_best['A'] = test_results['A'][0]
+                        model.save_A(logdir+"model_A_best_loss.ckpt")
+                        msg['A'] += ' *'
+                    if test_results['B'][0] < test_loss_best['B']:
+                        test_loss_best['B'] = test_results['B'][0]
+                        model.save_B(logdir+"model_B_best_loss.ckpt")
+                        msg['B'] += ' *'
 
             dtest = time.time() - t
 
@@ -292,13 +273,53 @@ def train(sess, model, hps, logdir, visualise):
             if hvd.rank() == 0:
                 dcurr = time.time() - tcurr
                 tcurr = time.time()
+                msg['A'] += ', train_time: {}'.format(int(train_time))
+                msg['B'] += ', train_time: {}'.format(int(train_time))
                 _print(epoch, n_processed, n_images, "{:.1f} {:.1f} {:.1f} {:.1f} {:.1f}".format(
-                    ips, dtrain, dtest, dsample, dcurr), train_results, test_results, msg)
-
+                    ips, dtrain, dtest, dsample, dcurr), train_results['A'], test_results['A'], msg['A'])
+                _print(epoch, n_processed, n_images, "{:.1f} {:.1f} {:.1f} {:.1f} {:.1f}".format(
+                    ips, dtrain, dtest, dsample, dcurr), train_results['B'], test_results['B'], msg['B'])
             # model.polyak_swap()
 
     if hvd.rank() == 0:
         _print("Finished!")
+
+def infer(sess, model, hps, iterators, its):
+    from tqdm import tqdm
+    assert hps.restore_path_A != ''
+    assert hps.restore_path_B != ''
+
+    xs_A, xs_B = [], []
+    zs_A, zs_B = [], []
+    for it in tqdm(range(its)):
+        x_A, y_A = iterators['A']()
+        x_B, y_B = iterators['B']()
+
+        # A2B
+        z_A = model.encode(x_A, y_A, 'model_A')
+        x_B_recon = model.decode(y_B, z_A, 'model_B')
+        xs_B.append(x_B_recon)
+        zs_A.append(z_A)
+
+        # B2A
+        z_B = model.encode(x_B, y_B, 'model_B')
+        x_A_recon = model.decode(y_A, z_B, 'model_A')
+        xs_A.append(x_A_recon)
+        zs_B.append(z_B)
+
+    x_A = np.concatenate(xs_A, axis=0)
+    z_A = np.concatenate(zs_A, axis=0)
+    x_B = np.concatenate(xs_B, axis=0)
+    z_B = np.concatenate(zs_B, axis=0)
+
+    np.save(os.path.join(hps.logdir, 'z_A'), z_A)
+    np.save(os.path.join(hps.logdir, 'z_B'), z_B)
+
+    from utils import npy2img
+    npy2img(os.path.join(hps.logdir, 'B2A'), x_A)
+    npy2img(os.path.join(hps.logdir, 'A2B'), x_B)
+
+    return x_A, z_A, x_B, z_B
 
 # Get number of training and validation iterations
 def get_its(hps):
@@ -340,8 +361,10 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--verbose", action='store_true', help="Verbose mode")
-    parser.add_argument("--restore_path", type=str, default='',
-                        help="Location of checkpoint to restore")
+    parser.add_argument("--restore_path_A", type=str, default='',
+                        help="Location of checkpoint to restore model A")
+    parser.add_argument("--restore_path_B", type=str, default='',
+                        help="Location of checkpoint to restore model B")
     parser.add_argument("--inference", action="store_true",
                         help="Use in inference mode")
     parser.add_argument("--logdir", type=str,
@@ -412,7 +435,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_sample", type=int, default=1,
                         help="minibatch size for sample")
     parser.add_argument("--epochs_full_sample", type=int,
-                        default=10, help="Epochs between full scale sample")
+                        default=5, help="Epochs between full scale sample")
 
     # Ablation
     parser.add_argument("--learntop", action="store_true",
@@ -426,17 +449,17 @@ if __name__ == "__main__":
                         help="Coupling type: 0=additive, 1=affine")
 
     # Pix2pix
-    parser.add_argument("--code_path", type=str, default=None,
-                        help="Path to the code used to supervise z. Set it to None to only get x,y \
-                              from data loader")
+    parser.add_argument("--joint_train", action="store_true",
+                        help="Get each other's code to supervise latent space")
     parser.add_argument("--flip_color", action="store_true",
                         help="Whether flip the color of mnist")
-    parser.add_argument("--code_loss_range", type=str, default='all',
-                        help="all/last")
+    parser.add_argument("--code_loss_type", type=str, default='code_last',
+                        help="code_all/code_last/B_all")
     parser.add_argument("--code_loss_fn", type=str, default='l2',
                         help="l2/l1")
     parser.add_argument("--code_loss_scale", type=float, default=1.0,
                         help="Scalar that is used to time the code_loss")
-
+    parser.add_argument("--mle_loss_scale", type=float, default=1.0,
+                        help="Scalar that is used to time the bits_x")
     hps = parser.parse_args()  # So error if typo
     main(hps)
