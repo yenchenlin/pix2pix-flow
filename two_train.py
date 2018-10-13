@@ -169,8 +169,10 @@ def main(hps):
     # Initialize visualization functions
     visualise = init_visualizations(hps, logdir, model)
     if not hps.inference:
-        # Perform training
         train(sess, model, hps, logdir, visualise)
+    else:
+        iterators = {'A': test_iterator_A, 'B': test_iterator_B}
+        infer(sess, model, hps, iterators, hps.full_test_its)
 
 
 def train(sess, model, hps, logdir, visualise):
@@ -281,6 +283,43 @@ def train(sess, model, hps, logdir, visualise):
 
     if hvd.rank() == 0:
         _print("Finished!")
+
+def infer(sess, model, hps, iterators, its):
+    from tqdm import tqdm
+    assert hps.restore_path_A != ''
+    assert hps.restore_path_B != ''
+
+    xs_A, xs_B = [], []
+    zs_A, zs_B = [], []
+    for it in tqdm(range(its)):
+        x_A, y_A = iterators['A']()
+        x_B, y_B = iterators['B']()
+
+        # A2B
+        z_A = model.encode(x_A, y_A, 'model_A')
+        x_B_recon = model.decode(y_B, z_A, 'model_B')
+        xs_B.append(x_B_recon)
+        zs_A.append(z_A)
+
+        # B2A
+        z_B = model.encode(x_B, y_B, 'model_B')
+        x_A_recon = model.decode(y_A, z_B, 'model_A')
+        xs_A.append(x_A_recon)
+        zs_B.append(z_B)
+
+    x_A = np.concatenate(xs_A, axis=0)
+    z_A = np.concatenate(zs_A, axis=0)
+    x_B = np.concatenate(xs_B, axis=0)
+    z_B = np.concatenate(zs_B, axis=0)
+
+    np.save(os.path.join(hps.logdir, 'z_A'), z_A)
+    np.save(os.path.join(hps.logdir, 'z_B'), z_B)
+
+    from utils import npy2img
+    npy2img(os.path.join(hps.logdir, 'B2A'), x_A)
+    npy2img(os.path.join(hps.logdir, 'A2B'), x_B)
+
+    return x_A, z_A, x_B, z_B
 
 # Get number of training and validation iterations
 def get_its(hps):

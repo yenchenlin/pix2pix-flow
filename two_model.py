@@ -22,7 +22,7 @@ def abstract_model_xy(sess, hps, feeds, train_iterators, test_iterators, data_in
     m.lr = lr
 
     # === Loss and optimizer
-    if hps.joint_train and not hps.inference:
+    if hps.joint_train:
         loss_train_A, stats_train_A, eps_flatten_A, loss_train_B, stats_train_B, eps_flatten_B = f_loss(train_iterators, is_training=True)
     else:
         loss_train_A, stats_train_A, loss_train_B, stats_train_B = f_loss(train_iterators, is_training=True)
@@ -443,13 +443,13 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
 
             return x
 
-        enc_eps_A, enc_eps_B = f_encode(X, Y, 'model_A'), f_encode(X, Y, 'model_B')
+        enc_eps_A, enc_eps_B = f_encode(X_A, Y_A, 'model_A'), f_encode(X_B, Y_B, 'model_B')
         dec_eps_A, dec_eps_B = [], []
         for enc_eps, dec_eps in zip([enc_eps_A, enc_eps_B], [dec_eps_A, dec_eps_B]):
             for i, _eps in enumerate(enc_eps):
                 dec_eps.append(tf.placeholder(tf.float32, _eps.get_shape().as_list(), name="dec_eps_" + str(i)))
-        dec_x_A = f_decode(Y, dec_eps_A, 'model_A')
-        dec_x_B = f_decode(Y, dec_eps_B, 'model_B')
+        dec_x_A = f_decode(Y_A, dec_eps_A, 'model_A')
+        dec_x_B = f_decode(Y_B, dec_eps_B, 'model_B')
 
         eps_shapes = [_eps.get_shape().as_list()[1:] for _eps in enc_eps_A]
 
