@@ -255,7 +255,6 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
 
             # Loss of eps and flatten latent code from another model
             eps_flatten_A = tf.concat([tf.contrib.layers.flatten(e) for e in eps_A], axis=-1)
-            code_loss = 0.0
 
         with tf.variable_scope('model_B', reuse=reuse):
             y_onehot_B = tf.cast(tf.one_hot(y_B, hps.n_y, 1, 0), 'float32')
@@ -281,13 +280,14 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
 
             # Loss of eps and flatten latent code from another model
             eps_flatten_B = tf.concat([tf.contrib.layers.flatten(e) for e in eps_B], axis=-1)
-            code_loss = 0.0
 
-        with tf.variable_scope('model_A', reuse=True):
-            # Decode the code from another model and compute L2 loss
-            # at pixel level
-            code_shapes = [[16, 16, 6], [8, 8, 12], [4, 4, 48]]
-            def unflatten_code(fcode):
+        code_loss = 0.0
+        code_shapes = [[16, 16, 6], [8, 8, 12], [4, 4, 48]]
+        if hps.code_loss_type == 'B_all':
+            """ Decode the code from another model and compute L2 loss
+                at pixel level
+            """
+            def unflatten_code(fcode, code_shapes):
                 index = 0
                 code = []
                 bs = tf.shape(fcode)[0]
@@ -297,62 +297,24 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
                                            tf.convert_to_tensor([bs] + shape)))
                     index += np.prod(shape)
                 return code
-            code_others = unflatten_code(eps_flatten_B)
-            # code_others[-1] is z, and code_others[:-1] is eps
-            _, sample, _ = prior("prior", y_onehot_A, hps)
-            code_last_others = sample(eps=code_others[-1])
-            code_decoded_others = decoder_A(code_last_others, code_others[:-1])
-            code_decoded = Z.unsqueeze2d(code_decoded_others, 2)
-            code_decoded = postprocess(code_decoded)
-            code_loss_A = tf.reduce_mean(tf.squared_difference(tf.cast(code_decoded, tf.float32), tf.cast(x_A, tf.float32)))
-            # if False
-            #     if hps.code_loss_type == 'code_all':
-            #         if hps.code_loss_fn == 'l2':
-            #             code_loss = tf.reduce_mean(tf.squared_difference(code_flatten, eps_flatten))
-            #         elif hps.code_loss_fn == 'l1':
-            #             code_loss = tf.reduce_mean(tf.abs(code_flatten - eps_flatten))
-            #         else:
-            #             raise NotImplementedError()
-            #     elif hps.code_loss_type == 'code_last_2':
-            #         raise NotImplementedError()
-            #     elif hps.code_loss_type == 'code_last':
-            #         z_flatten = tf.contrib.layers.flatten(z)
-            #         z_dim = z_flatten.get_shape().as_list()[-1]
-            #         if hps.code_loss_fn == 'l2':
-            #             code_loss = tf.reduce_mean(tf.squared_difference(code_flatten[:, -z_dim:], z_flatten))
-            #         elif hps.code_loss_fn == 'l1':
-            #             code_loss = tf.reduce_mean(tf.abs(code_flatten[:, -z_dim:] - z_flatten))
-            #         else:
-            #             raise NotImplementedError()
-            #     elif hps.code_loss_type == 'B_all':
-            #         # Decode the code from another model and compute L2 loss
-            #         # at pixel level
-            #         code_shapes = [[16, 16, 6], [8, 8, 12], [4, 4, 48]]
-            #         def unflatten_code(fcode):
-            #             index = 0
-            #             code = []
-            #             bs = tf.shape(fcode)[0]
-            #             # bs = hps.local_batch_train
-            #             for shape in code_shapes:
-            #                 code.append(tf.reshape(fcode[:, index:index+np.prod(shape)],
-            #                                        tf.convert_to_tensor([bs] + shape)))
-            #                 index += np.prod(shape)
-            #             return code
-            #         code_others = unflatten_code(code_flatten)
-            #         # code_others[-1] is z, and code_others[:-1] is eps
-            #         _, sample, _ = prior("prior", y_onehot, hps)
-            #         code_last_others = sample(eps=code_others[-1])
-            #         code_decoded_others = decoder(code_last_others, code_others[:-1])
-            #         code_decoded = Z.unsqueeze2d(code_decoded_others, 2)
-            #         code_decoded = postprocess(code_decoded)
 
-            #         # In order to keep image in [-0.5, 0.5], we don't apply
-            #         # post process to code_decoded but instead perform preprocess(x)
-            #         # So the following line makes more sense, but it keeps output errors :(
-            #         # code_loss = tf.reduce_mean(tf.squared_difference(code_decoded_others, preprocess(x)))
-            #         code_loss = tf.reduce_mean(tf.squared_difference(1/255.0 * tf.cast(code_decoded, tf.float32), 1/255.0 * tf.cast(x, tf.float32)))
-            #     else:
-            #         raise NotImplementedError()
+            code_others = unflatten_code(eps_flatten_A, code_shapes)
+            # code_others[-1] is z, and code_others[:-1] is eps
+            _, sample, _ = prior("prior", y_onehot_B, hps)
+            code_last_others = sample(eps=code_others[-1])
+            code_decoded_others = decoder_B(code_last_others, code_others[:-1])
+            code_decoded = Z.unsqueeze2d(code_decoded_others, 2)
+            x_B_pred = postprocess(code_decoded)
+            code_loss = tf.reduce_mean(tf.squared_difference(tf.cast(x_B_pred, tf.float32), tf.cast(x_B, tf.float32)))
+        elif hps.code_loss_type == 'code_all':
+            code_loss = tf.reduce_mean(
+                tf.squared_difference(eps_flatten_A, eps_flatten_B))
+        elif hps.code_loss_type == 'code_last':
+            dim = np.prod(code_shapes[-1])
+            code_loss = tf.reduce_mean(tf.squared_difference(eps_flatten_A[:, -dim:], eps_flatten_B[:, -dim:]))
+        else:
+            raise NotImplementedError()
+
         with tf.variable_scope('model_A', reuse=True):
             # Generative loss
             nobj_A = - objective_A
@@ -369,8 +331,7 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
             bits_y_B = tf.zeros_like(bits_x_B)
             classification_error_B = tf.ones_like(bits_x_B)
 
-        classification_error = 0
-        return bits_x_A, bits_y_A, classification_error_A, eps_flatten_A, code_loss_A, bits_x_B, bits_y_B, classification_error_B, eps_flatten_B
+        return bits_x_A, bits_y_A, classification_error_A, eps_flatten_A, bits_x_B, bits_y_B, classification_error_B, eps_flatten_B, code_loss
 
     def f_loss(iterators, is_training, reuse=False):
         if hps.direct_iterator and iterators is not None:
@@ -378,15 +339,16 @@ def model(sess, hps, train_iterators, test_iterators, data_inits):
         else:
             x_A, y_A, x_B, y_B = X_A, Y_A, X_B, Y_B
 
-        bits_x_A, bits_y_A, pred_loss_A, eps_flatten_A, code_loss_A, bits_x_B, bits_y_B, pred_loss_B, eps_flatten_B = _f_loss(x_A, y_A, x_B, y_B, is_training, reuse)
+        bits_x_A, bits_y_A, pred_loss_A, eps_flatten_A, bits_x_B, bits_y_B, pred_loss_B, eps_flatten_B, code_loss = _f_loss(x_A, y_A, x_B, y_B, is_training, reuse)
         local_loss_A = hps.mle_loss_scale * bits_x_A + hps.weight_y * bits_y_A
         local_loss_B = hps.mle_loss_scale * bits_x_B + hps.weight_y * bits_y_B
         # Add code difference loss
-        # if hps.joint_train:
-        #     local_loss += hps.code_loss_scale * code_loss
-        code_loss_B = 0.0
-        stats_A = [local_loss_A, bits_x_A, bits_y_A, pred_loss_A, code_loss_A]
-        stats_B = [local_loss_B, bits_x_B, bits_y_B, pred_loss_B, code_loss_B]
+        if hps.joint_train:
+            local_loss_A += hps.code_loss_scale * code_loss
+            local_loss_B += hps.code_loss_scale * code_loss
+
+        stats_A = [local_loss_A, bits_x_A, bits_y_A, pred_loss_A, code_loss]
+        stats_B = [local_loss_B, bits_x_B, bits_y_B, pred_loss_B, code_loss]
         global_stats_A = Z.allreduce_mean(
             tf.stack([tf.reduce_mean(i) for i in stats_A]))
         global_stats_B = Z.allreduce_mean(
