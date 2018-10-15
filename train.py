@@ -206,8 +206,9 @@ def train(sess, model, hps, logdir, visualise):
             # Run a training step synchronously.
             _t = time.time()
             x_A, y_A, x_B, y_B = model.get_train_data()
-            train_results['A'] += [model.train_A(lr, x_A, y_A, x_B, y_B)]
-            train_results['B'] += [model.train_B(lr, x_A, y_A, x_B, y_B)]
+            train_results_A, train_results_B = model.train(lr, x_A, y_A, x_B, y_B)
+            train_results['A'] += [train_results_A]
+            train_results['B'] += [train_results_B]
             if hps.verbose and hvd.rank() == 0:
                 _print(n_processed, time.time()-_t, train_results['A'][-1])
                 _print(n_processed, time.time()-_t, train_results['B'][-1])

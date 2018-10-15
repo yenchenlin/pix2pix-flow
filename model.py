@@ -81,6 +81,13 @@ def abstract_model_xy(sess, hps, feeds, train_iterators, test_iterators, data_in
             m.train_B = _train_B
         m.polyak_swap_B = lambda: sess.run(polyak_swap_op_B)
 
+    def _train(_lr, _x_A, _y_A, _x_B, _y_B):
+        return sess.run([train_op_A, train_op_B, stats_train_A, stats_train_B],
+                        {feeds['x_A']: _x_A, feeds['y_A']: _y_A,
+                         feeds['x_B']: _x_B, feeds['y_B']: _y_B,
+                         lr: _lr})[-2:]
+    m.train = _train
+
     # === Testing
     loss_test_A, stats_test_A, loss_test_B, stats_test_B = f_loss(test_iterators, False, reuse=True)
     if hps.direct_iterator:
