@@ -159,6 +159,13 @@ def main(hps):
     if not os.path.exists(logdir):
         os.mkdir(logdir)
 
+    # Set up restore path
+    if hps.inference:
+        if hps.restore_path_A == '':
+            hps.restore_path_A = os.path.join(hps.logdir, 'model_A_best_loss.ckpt')
+        if hps.restore_path_B == '':
+            hps.restore_path_B = os.path.join(hps.logdir, 'model_B_best_loss.ckpt')
+
     # Create model
     import model
     train_iterators = {'A': train_iterator_A, 'B': train_iterator_B}
