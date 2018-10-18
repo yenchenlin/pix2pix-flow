@@ -35,7 +35,7 @@ mpiexec -n 4 python train.py --problem PROBLEM --image_size 32 --n_level 3 --dep
 
 Add `--inference` to training command, will store `z_A.npy`, `z__B.npy`, `A2B.png`, `B2A.png` in `LOGDIR`.
 ```
-mpiexec -n 4 python train.py --problem PROBLEM --image_size 32 --n_level 3 --depth 32 --flow_permutation 2 --flow_coupling 1 --seed 0 --learntop --lr 0.001 --n_bits_x 8 --joint_train --logdir LOGDIR --inference
+python train.py --problem PROBLEM --image_size 32 --n_level 3 --depth 32 --flow_permutation 2 --flow_coupling 1 --seed 0 --learntop --lr 0.001 --n_bits_x 8 --joint_train --logdir LOGDIR --inference
 ```
 
 ## Datasets
