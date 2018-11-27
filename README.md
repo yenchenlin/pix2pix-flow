@@ -15,6 +15,10 @@ pip install -r requirements.txt
 
 To setup (Open)MPI, check instructions on Horovod github [page](https://github.com/uber/horovod).
 
+## Dataset
+
+- `edges2shoes`: Download it [here](https://www.dropbox.com/sh/s825xr9wimvgdu1/AABhVaT7IIVJ_8BZ_WayCVuKa?dl=0) and place it under `pix2pix-flow`.
+
 ## Train 
 
 Train with 4 GPUs:
