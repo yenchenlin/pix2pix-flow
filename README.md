@@ -1,7 +1,7 @@
 # Image-to-image translation with flow-based generative model 
 
-![](https://user-images.githubusercontent.com/7057863/49054094-f0c11280-f1c0-11e8-92f0-107c6642c238.png)
-![](https://user-images.githubusercontent.com/7057863/49054482-61b4fa00-f1c2-11e8-9e3c-f04fef145262.png)
+![](https://user-images.githubusercontent.com/7057863/49054732-354dad80-f1c3-11e8-8406-5b3570a8cc47.png)
+![](https://user-images.githubusercontent.com/7057863/49054733-354dad80-f1c3-11e8-9414-dd2e699acdd2.png)
 
 ## Requirements
 
