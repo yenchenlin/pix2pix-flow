@@ -55,4 +55,6 @@ Train with 4 GPUs with B domain pixel l2 loss:
 mpiexec -n 4 python train.py --problem PROBLEM --image_size 32 --n_level 3 --depth 32 --flow_permutation 2 --flow_coupling 1 --seed 0 --learntop --lr 0.001 --n_bits_x 8 --joint_train --logdir LOGDIR --B_loss --B_loss_fn l2
 ```
 
+## Disclaimer
 
+The code is hugely borrowed from [OpenAI's Glow](https://github.com/openai/glow).
