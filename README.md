@@ -47,7 +47,7 @@ Run wtih small depth to test
 CUDA_VISIBLE_DEVICES=0 python train.py --depth 1 --epochs_full_sample 1 --epochs_full_valid 1 --joint_train --problem PROBLEM --logdir LOGDIR
 ```
 
-## WIP
+## Work in Progress
 
 Train with 4 GPUs with B domain pixel l2 loss:
 ```
