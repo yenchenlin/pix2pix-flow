@@ -35,7 +35,7 @@ def get_data(problem, shards, rank, data_augmentation_level, n_batch_train,
              n_batch_test, n_batch_init, resolution, flip_color=False,
              code_path=None):
     if problem == 'edges2shoes' or problem == 'facades':
-        DIR = '/afs/csail.mit.edu/u/y/yenchenlin/Workspace/pix2pix/datasets/'
+        DIR = '../'
         x_train_A = np.load(
             os.path.join(DIR, '{}_32/train/A.npy'.format(problem)))
         x_test_A = np.load(
