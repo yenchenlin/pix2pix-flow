@@ -39,7 +39,7 @@ After running the command, you will get:
 - `A2B.png`: images in domain B translated from domain A.
 - `B2A.png`: images in domain A tanslated from domain B.
 
-in `LOGDIR`
+in `LOGDIR`.
 
 ## DEBUG: train with 1 GPU
 
