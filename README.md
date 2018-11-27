@@ -21,7 +21,7 @@ Train with 4 GPUs:
 mpiexec -n 4 python train.py --problem PROBLEM --image_size 32 --n_level 3 --depth 32 --flow_permutation 2 --flow_coupling 1 --seed 0 --learntop --lr 0.001 --n_bits_x 8 --joint_train --logdir LOGDIR
 ```
 
-Replace `PROBLEM` with [`mnist` | `edges2shoes`].
+Replace `PROBLEM` with [`mnist` | `edges2shoes`], and `LOGDIR` with the repo you want to save the trained models.
 
 ## Inference
 
@@ -29,7 +29,7 @@ Replace `PROBLEM` with [`mnist` | `edges2shoes`].
 python train.py --problem PROBLEM --image_size 32 --n_level 3 --depth 32 --flow_permutation 2 --flow_coupling 1 --seed 0 --learntop --lr 0.001 --n_bits_x 8 --joint_train --logdir LOGDIR --inference
 ```
 
-Replace `PROBLEM` with [`mnist` | `edges2shoes`].
+Replace `PROBLEM` with [`mnist` | `edges2shoes`], and and `LOGDIR` with the repo you want to save the inference results.
 
 After running the command, you will get: 
 
